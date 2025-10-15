@@ -1,0 +1,2543 @@
+Terminals unused in grammar
+
+    "begin"
+    "end"
+
+
+State 84 conflicts: 1 shift/reduce
+
+
+Grammar
+
+    0 $accept: program $end
+
+    1 program: func_def
+
+    2 func_def: "def" header local_def_list stmt_list auto_end
+
+    3 func_decl: "decl" header
+
+    4 header: T_id "is" type ':' opt_fpar
+    5       | T_id "is" type
+    6       | T_id ':' opt_fpar
+    7       | T_id
+
+    8 type: type '[' T_number ']'
+    9     | data_type
+
+   10 data_type: "int"
+   11          | "byte"
+
+   12 opt_fpar: id_list "as" ref_data_type
+   13         | id_list "as" ref_data_type ',' opt_fpar
+   14         | id_list "as" fpar_type
+   15         | id_list "as" fpar_type ',' opt_fpar
+
+   16 ref_data_type: "ref" "int"
+   17              | "ref" "byte"
+
+   18 fpar_type: "int"
+   19          | "byte"
+   20          | array_type
+
+   21 array_type: "int" '[' ']'
+   22           | "byte" '[' ']'
+   23           | "int" '[' T_number ']'
+   24           | "byte" '[' T_number ']'
+   25           | array_type '[' T_number ']'
+
+   26 id_list: T_id
+   27        | id_list T_id
+
+   28 stmt_list: stmt
+   29          | stmt_list stmt
+
+   30 local_def_list: ε
+   31               | local_def_list local_def
+
+   32 local_def: func_def
+   33          | func_decl
+   34          | "var" id_list "is" type
+
+   35 stmt: "skip"
+   36     | l_value ":=" expr
+   37     | func_call
+   38     | proc_call
+   39     | "exit"
+   40     | "return" ':' expr
+   41     | if_stmts
+   42     | loop
+   43     | "break"
+   44     | "break" ':' T_id
+   45     | "continue"
+   46     | "continue" ':' T_id
+
+   47 if_stmts: "if" cond ':' stmt_list auto_end opt_elif_else
+
+   48 opt_elif_else: ε
+   49              | "else" ':' stmt_list auto_end
+   50              | "elif" cond ':' stmt_list auto_end opt_elif_else
+
+   51 l_value: T_id
+   52        | T_string
+   53        | l_value '[' expr ']'
+
+   54 loop: "loop" T_id ':' stmt_list auto_end
+   55     | "loop" ':' stmt_list auto_end
+
+   56 proc_call: T_id
+   57          | T_id ':' expr_list
+
+   58 func_call: T_id '(' ')'
+   59          | T_id '(' expr_list ')'
+
+   60 expr: T_number
+   61     | T_const
+   62     | l_value
+   63     | '(' expr ')'
+   64     | func_call
+   65     | '+' expr
+   66     | '-' expr
+   67     | expr '+' expr
+   68     | expr '-' expr
+   69     | expr '*' expr
+   70     | expr '/' expr
+   71     | expr '%' expr
+   72     | "true"
+   73     | "false"
+   74     | '!' expr
+   75     | expr '&' expr
+   76     | expr '|' expr
+
+   77 cond: expr '>' expr
+   78     | expr '<' expr
+   79     | expr ">=" expr
+   80     | expr "<=" expr
+   81     | expr '=' expr
+   82     | expr "<>" expr
+   83     | cond "and" cond
+   84     | cond "or" cond
+   85     | "not" cond
+   86     | '(' cond ')'
+   87     | expr
+
+   88 expr_list: expr
+   89          | expr_list ',' expr
+
+
+Terminals, with rules where they appear
+
+    $end (0) 0
+    '!' (33) 74
+    '%' (37) 71
+    '&' (38) 75
+    '(' (40) 58 59 63 86
+    ')' (41) 58 59 63 86
+    '*' (42) 69
+    '+' (43) 65 67
+    ',' (44) 13 15 89
+    '-' (45) 66 68
+    '/' (47) 70
+    ':' (58) 4 6 40 44 46 47 49 50 54 55 57
+    '<' (60) 78
+    '=' (61) 81
+    '>' (62) 77
+    '[' (91) 8 21 22 23 24 25 53
+    ']' (93) 8 21 22 23 24 25 53
+    '|' (124) 76
+    error (256)
+    "and" (258) 83
+    "as" (259) 12 13 14 15
+    "begin" (260)
+    "break" (261) 43 44
+    "byte" (262) 11 17 19 22 24
+    "continue" (263) 45 46
+    "decl" (264) 3
+    "def" (265) 2
+    "elif" (266) 50
+    "else" (267) 49
+    "end" (268)
+    "exit" (269) 39
+    "false" (270) 73
+    "if" (271) 47
+    "is" (272) 4 5 34
+    "int" (273) 10 16 18 21 23
+    "loop" (274) 54 55
+    "not" (275) 85
+    "or" (276) 84
+    "ref" (277) 16 17
+    "return" (278) 40
+    "skip" (279) 35
+    "true" (280) 72
+    "var" (281) 34
+    ":=" (282) 36
+    ">=" (283) 79
+    "<=" (284) 80
+    "<>" (285) 82
+    T_const <str> (286) 61
+    T_id <str> (287) 4 5 6 7 26 27 44 46 51 54 56 57 58 59
+    T_number <num> (288) 8 23 24 25 60
+    T_string <str> (289) 52
+    auto_end (290) 2 47 49 50 54 55
+
+
+Nonterminals, with rules where they appear
+
+    $accept (53)
+        on left: 0
+    program <ast> (54)
+        on left: 1
+        on right: 0
+    func_def <fdf> (55)
+        on left: 2
+        on right: 1 32
+    func_decl <fdcl> (56)
+        on left: 3
+        on right: 33
+    header <hd> (57)
+        on left: 4 5 6 7
+        on right: 2 3
+    type <tp> (58)
+        on left: 8 9
+        on right: 4 5 8 34
+    data_type <type> (59)
+        on left: 10 11
+        on right: 9
+    opt_fpar <optfp> (60)
+        on left: 12 13 14 15
+        on right: 4 6 13 15
+    ref_data_type <type> (61)
+        on left: 16 17
+        on right: 12 13
+    fpar_type <fpt> (62)
+        on left: 18 19 20
+        on right: 14 15
+    array_type <fpt> (63)
+        on left: 21 22 23 24 25
+        on right: 20 25
+    id_list <idlst> (64)
+        on left: 26 27
+        on right: 12 13 14 15 27 34
+    stmt_list <st_list> (65)
+        on left: 28 29
+        on right: 2 29 47 49 50 54 55
+    local_def_list <ldl> (66)
+        on left: 30 31
+        on right: 2 31
+    local_def <lcldef> (67)
+        on left: 32 33 34
+        on right: 31
+    stmt <st> (68)
+        on left: 35 36 37 38 39 40 41 42 43 44 45 46
+        on right: 28 29
+    if_stmts <ifblck> (69)
+        on left: 47
+        on right: 41
+    opt_elif_else <oee> (70)
+        on left: 48 49 50
+        on right: 47 50
+    l_value <lval> (71)
+        on left: 51 52 53
+        on right: 36 53 62
+    loop <lb> (72)
+        on left: 54 55
+        on right: 42
+    proc_call <pcall> (73)
+        on left: 56 57
+        on right: 38
+    func_call <fcall> (74)
+        on left: 58 59
+        on right: 37 64
+    expr <expr> (75)
+        on left: 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76
+        on right: 36 40 53 63 65 66 67 68 69 70 71 74 75 76 77 78 79 80 81 82 87 88 89
+    cond <cnd> (76)
+        on left: 77 78 79 80 81 82 83 84 85 86 87
+        on right: 47 50 83 84 85 86
+    expr_list <exlst> (77)
+        on left: 88 89
+        on right: 57 59 89
+
+
+State 0
+
+    0 $accept: • program $end
+
+    "def"  shift, and go to state 1
+
+    program   go to state 2
+    func_def  go to state 3
+
+
+State 1
+
+    2 func_def: "def" • header local_def_list stmt_list auto_end
+
+    T_id  shift, and go to state 4
+
+    header  go to state 5
+
+
+State 2
+
+    0 $accept: program • $end
+
+    $end  shift, and go to state 6
+
+
+State 3
+
+    1 program: func_def •
+
+    $default  reduce using rule 1 (program)
+
+
+State 4
+
+    4 header: T_id • "is" type ':' opt_fpar
+    5       | T_id • "is" type
+    6       | T_id • ':' opt_fpar
+    7       | T_id •
+
+    "is"  shift, and go to state 7
+    ':'   shift, and go to state 8
+
+    $default  reduce using rule 7 (header)
+
+
+State 5
+
+    2 func_def: "def" header • local_def_list stmt_list auto_end
+
+    $default  reduce using rule 30 (local_def_list)
+
+    local_def_list  go to state 9
+
+
+State 6
+
+    0 $accept: program $end •
+
+    $default  accept
+
+
+State 7
+
+    4 header: T_id "is" • type ':' opt_fpar
+    5       | T_id "is" • type
+
+    "byte"  shift, and go to state 10
+    "int"   shift, and go to state 11
+
+    type       go to state 12
+    data_type  go to state 13
+
+
+State 8
+
+    6 header: T_id ':' • opt_fpar
+
+    T_id  shift, and go to state 14
+
+    opt_fpar  go to state 15
+    id_list   go to state 16
+
+
+State 9
+
+    2 func_def: "def" header local_def_list • stmt_list auto_end
+   31 local_def_list: local_def_list • local_def
+
+    "break"     shift, and go to state 17
+    "continue"  shift, and go to state 18
+    "decl"      shift, and go to state 19
+    "def"       shift, and go to state 1
+    "exit"      shift, and go to state 20
+    "if"        shift, and go to state 21
+    "loop"      shift, and go to state 22
+    "return"    shift, and go to state 23
+    "skip"      shift, and go to state 24
+    "var"       shift, and go to state 25
+    T_id        shift, and go to state 26
+    T_string    shift, and go to state 27
+
+    func_def   go to state 28
+    func_decl  go to state 29
+    stmt_list  go to state 30
+    local_def  go to state 31
+    stmt       go to state 32
+    if_stmts   go to state 33
+    l_value    go to state 34
+    loop       go to state 35
+    proc_call  go to state 36
+    func_call  go to state 37
+
+
+State 10
+
+   11 data_type: "byte" •
+
+    $default  reduce using rule 11 (data_type)
+
+
+State 11
+
+   10 data_type: "int" •
+
+    $default  reduce using rule 10 (data_type)
+
+
+State 12
+
+    4 header: T_id "is" type • ':' opt_fpar
+    5       | T_id "is" type •
+    8 type: type • '[' T_number ']'
+
+    ':'  shift, and go to state 38
+    '['  shift, and go to state 39
+
+    $default  reduce using rule 5 (header)
+
+
+State 13
+
+    9 type: data_type •
+
+    $default  reduce using rule 9 (type)
+
+
+State 14
+
+   26 id_list: T_id •
+
+    $default  reduce using rule 26 (id_list)
+
+
+State 15
+
+    6 header: T_id ':' opt_fpar •
+
+    $default  reduce using rule 6 (header)
+
+
+State 16
+
+   12 opt_fpar: id_list • "as" ref_data_type
+   13         | id_list • "as" ref_data_type ',' opt_fpar
+   14         | id_list • "as" fpar_type
+   15         | id_list • "as" fpar_type ',' opt_fpar
+   27 id_list: id_list • T_id
+
+    "as"  shift, and go to state 40
+    T_id  shift, and go to state 41
+
+
+State 17
+
+   43 stmt: "break" •
+   44     | "break" • ':' T_id
+
+    ':'  shift, and go to state 42
+
+    $default  reduce using rule 43 (stmt)
+
+
+State 18
+
+   45 stmt: "continue" •
+   46     | "continue" • ':' T_id
+
+    ':'  shift, and go to state 43
+
+    $default  reduce using rule 45 (stmt)
+
+
+State 19
+
+    3 func_decl: "decl" • header
+
+    T_id  shift, and go to state 4
+
+    header  go to state 44
+
+
+State 20
+
+   39 stmt: "exit" •
+
+    $default  reduce using rule 39 (stmt)
+
+
+State 21
+
+   47 if_stmts: "if" • cond ':' stmt_list auto_end opt_elif_else
+
+    "false"   shift, and go to state 45
+    "not"     shift, and go to state 46
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 54
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 57
+    cond       go to state 58
+
+
+State 22
+
+   54 loop: "loop" • T_id ':' stmt_list auto_end
+   55     | "loop" • ':' stmt_list auto_end
+
+    T_id  shift, and go to state 59
+    ':'   shift, and go to state 60
+
+
+State 23
+
+   40 stmt: "return" • ':' expr
+
+    ':'  shift, and go to state 61
+
+
+State 24
+
+   35 stmt: "skip" •
+
+    $default  reduce using rule 35 (stmt)
+
+
+State 25
+
+   34 local_def: "var" • id_list "is" type
+
+    T_id  shift, and go to state 14
+
+    id_list  go to state 62
+
+
+State 26
+
+   51 l_value: T_id •
+   56 proc_call: T_id •
+   57          | T_id • ':' expr_list
+   58 func_call: T_id • '(' ')'
+   59          | T_id • '(' expr_list ')'
+
+    '('  shift, and go to state 63
+    ':'  shift, and go to state 64
+
+    ":="      reduce using rule 51 (l_value)
+    '['       reduce using rule 51 (l_value)
+    $default  reduce using rule 56 (proc_call)
+
+
+State 27
+
+   52 l_value: T_string •
+
+    $default  reduce using rule 52 (l_value)
+
+
+State 28
+
+   32 local_def: func_def •
+
+    $default  reduce using rule 32 (local_def)
+
+
+State 29
+
+   33 local_def: func_decl •
+
+    $default  reduce using rule 33 (local_def)
+
+
+State 30
+
+    2 func_def: "def" header local_def_list stmt_list • auto_end
+   29 stmt_list: stmt_list • stmt
+
+    "break"     shift, and go to state 17
+    "continue"  shift, and go to state 18
+    "exit"      shift, and go to state 20
+    "if"        shift, and go to state 21
+    "loop"      shift, and go to state 22
+    "return"    shift, and go to state 23
+    "skip"      shift, and go to state 24
+    T_id        shift, and go to state 26
+    T_string    shift, and go to state 27
+    auto_end    shift, and go to state 65
+
+    stmt       go to state 66
+    if_stmts   go to state 33
+    l_value    go to state 34
+    loop       go to state 35
+    proc_call  go to state 36
+    func_call  go to state 37
+
+
+State 31
+
+   31 local_def_list: local_def_list local_def •
+
+    $default  reduce using rule 31 (local_def_list)
+
+
+State 32
+
+   28 stmt_list: stmt •
+
+    $default  reduce using rule 28 (stmt_list)
+
+
+State 33
+
+   41 stmt: if_stmts •
+
+    $default  reduce using rule 41 (stmt)
+
+
+State 34
+
+   36 stmt: l_value • ":=" expr
+   53 l_value: l_value • '[' expr ']'
+
+    ":="  shift, and go to state 67
+    '['   shift, and go to state 68
+
+
+State 35
+
+   42 stmt: loop •
+
+    $default  reduce using rule 42 (stmt)
+
+
+State 36
+
+   38 stmt: proc_call •
+
+    $default  reduce using rule 38 (stmt)
+
+
+State 37
+
+   37 stmt: func_call •
+
+    $default  reduce using rule 37 (stmt)
+
+
+State 38
+
+    4 header: T_id "is" type ':' • opt_fpar
+
+    T_id  shift, and go to state 14
+
+    opt_fpar  go to state 69
+    id_list   go to state 16
+
+
+State 39
+
+    8 type: type '[' • T_number ']'
+
+    T_number  shift, and go to state 70
+
+
+State 40
+
+   12 opt_fpar: id_list "as" • ref_data_type
+   13         | id_list "as" • ref_data_type ',' opt_fpar
+   14         | id_list "as" • fpar_type
+   15         | id_list "as" • fpar_type ',' opt_fpar
+
+    "byte"  shift, and go to state 71
+    "int"   shift, and go to state 72
+    "ref"   shift, and go to state 73
+
+    ref_data_type  go to state 74
+    fpar_type      go to state 75
+    array_type     go to state 76
+
+
+State 41
+
+   27 id_list: id_list T_id •
+
+    $default  reduce using rule 27 (id_list)
+
+
+State 42
+
+   44 stmt: "break" ':' • T_id
+
+    T_id  shift, and go to state 77
+
+
+State 43
+
+   46 stmt: "continue" ':' • T_id
+
+    T_id  shift, and go to state 78
+
+
+State 44
+
+    3 func_decl: "decl" header •
+
+    $default  reduce using rule 3 (func_decl)
+
+
+State 45
+
+   73 expr: "false" •
+
+    $default  reduce using rule 73 (expr)
+
+
+State 46
+
+   85 cond: "not" • cond
+
+    "false"   shift, and go to state 45
+    "not"     shift, and go to state 46
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 54
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 57
+    cond       go to state 79
+
+
+State 47
+
+   72 expr: "true" •
+
+    $default  reduce using rule 72 (expr)
+
+
+State 48
+
+   61 expr: T_const •
+
+    $default  reduce using rule 61 (expr)
+
+
+State 49
+
+   51 l_value: T_id •
+   58 func_call: T_id • '(' ')'
+   59          | T_id • '(' expr_list ')'
+
+    '('  shift, and go to state 63
+
+    $default  reduce using rule 51 (l_value)
+
+
+State 50
+
+   60 expr: T_number •
+
+    $default  reduce using rule 60 (expr)
+
+
+State 51
+
+   74 expr: '!' • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 81
+
+
+State 52
+
+   65 expr: '+' • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 82
+
+
+State 53
+
+   66 expr: '-' • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 83
+
+
+State 54
+
+   63 expr: '(' • expr ')'
+   86 cond: '(' • cond ')'
+
+    "false"   shift, and go to state 45
+    "not"     shift, and go to state 46
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 54
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 84
+    cond       go to state 85
+
+
+State 55
+
+   53 l_value: l_value • '[' expr ']'
+   62 expr: l_value •
+
+    '['  shift, and go to state 68
+
+    $default  reduce using rule 62 (expr)
+
+
+State 56
+
+   64 expr: func_call •
+
+    $default  reduce using rule 64 (expr)
+
+
+State 57
+
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+   77 cond: expr • '>' expr
+   78     | expr • '<' expr
+   79     | expr • ">=" expr
+   80     | expr • "<=" expr
+   81     | expr • '=' expr
+   82     | expr • "<>" expr
+   87     | expr •
+
+    ">="  shift, and go to state 86
+    "<="  shift, and go to state 87
+    "<>"  shift, and go to state 88
+    '='   shift, and go to state 89
+    '<'   shift, and go to state 90
+    '>'   shift, and go to state 91
+    '|'   shift, and go to state 92
+    '&'   shift, and go to state 93
+    '+'   shift, and go to state 94
+    '-'   shift, and go to state 95
+    '*'   shift, and go to state 96
+    '/'   shift, and go to state 97
+    '%'   shift, and go to state 98
+
+    $default  reduce using rule 87 (cond)
+
+
+State 58
+
+   47 if_stmts: "if" cond • ':' stmt_list auto_end opt_elif_else
+   83 cond: cond • "and" cond
+   84     | cond • "or" cond
+
+    "and"  shift, and go to state 99
+    "or"   shift, and go to state 100
+    ':'    shift, and go to state 101
+
+
+State 59
+
+   54 loop: "loop" T_id • ':' stmt_list auto_end
+
+    ':'  shift, and go to state 102
+
+
+State 60
+
+   55 loop: "loop" ':' • stmt_list auto_end
+
+    "break"     shift, and go to state 17
+    "continue"  shift, and go to state 18
+    "exit"      shift, and go to state 20
+    "if"        shift, and go to state 21
+    "loop"      shift, and go to state 22
+    "return"    shift, and go to state 23
+    "skip"      shift, and go to state 24
+    T_id        shift, and go to state 26
+    T_string    shift, and go to state 27
+
+    stmt_list  go to state 103
+    stmt       go to state 32
+    if_stmts   go to state 33
+    l_value    go to state 34
+    loop       go to state 35
+    proc_call  go to state 36
+    func_call  go to state 37
+
+
+State 61
+
+   40 stmt: "return" ':' • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 104
+
+
+State 62
+
+   27 id_list: id_list • T_id
+   34 local_def: "var" id_list • "is" type
+
+    "is"  shift, and go to state 105
+    T_id  shift, and go to state 41
+
+
+State 63
+
+   58 func_call: T_id '(' • ')'
+   59          | T_id '(' • expr_list ')'
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+    ')'       shift, and go to state 106
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 107
+    expr_list  go to state 108
+
+
+State 64
+
+   57 proc_call: T_id ':' • expr_list
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 107
+    expr_list  go to state 109
+
+
+State 65
+
+    2 func_def: "def" header local_def_list stmt_list auto_end •
+
+    $default  reduce using rule 2 (func_def)
+
+
+State 66
+
+   29 stmt_list: stmt_list stmt •
+
+    $default  reduce using rule 29 (stmt_list)
+
+
+State 67
+
+   36 stmt: l_value ":=" • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 110
+
+
+State 68
+
+   53 l_value: l_value '[' • expr ']'
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 111
+
+
+State 69
+
+    4 header: T_id "is" type ':' opt_fpar •
+
+    $default  reduce using rule 4 (header)
+
+
+State 70
+
+    8 type: type '[' T_number • ']'
+
+    ']'  shift, and go to state 112
+
+
+State 71
+
+   19 fpar_type: "byte" •
+   22 array_type: "byte" • '[' ']'
+   24           | "byte" • '[' T_number ']'
+
+    '['  shift, and go to state 113
+
+    $default  reduce using rule 19 (fpar_type)
+
+
+State 72
+
+   18 fpar_type: "int" •
+   21 array_type: "int" • '[' ']'
+   23           | "int" • '[' T_number ']'
+
+    '['  shift, and go to state 114
+
+    $default  reduce using rule 18 (fpar_type)
+
+
+State 73
+
+   16 ref_data_type: "ref" • "int"
+   17              | "ref" • "byte"
+
+    "byte"  shift, and go to state 115
+    "int"   shift, and go to state 116
+
+
+State 74
+
+   12 opt_fpar: id_list "as" ref_data_type •
+   13         | id_list "as" ref_data_type • ',' opt_fpar
+
+    ','  shift, and go to state 117
+
+    $default  reduce using rule 12 (opt_fpar)
+
+
+State 75
+
+   14 opt_fpar: id_list "as" fpar_type •
+   15         | id_list "as" fpar_type • ',' opt_fpar
+
+    ','  shift, and go to state 118
+
+    $default  reduce using rule 14 (opt_fpar)
+
+
+State 76
+
+   20 fpar_type: array_type •
+   25 array_type: array_type • '[' T_number ']'
+
+    '['  shift, and go to state 119
+
+    $default  reduce using rule 20 (fpar_type)
+
+
+State 77
+
+   44 stmt: "break" ':' T_id •
+
+    $default  reduce using rule 44 (stmt)
+
+
+State 78
+
+   46 stmt: "continue" ':' T_id •
+
+    $default  reduce using rule 46 (stmt)
+
+
+State 79
+
+   83 cond: cond • "and" cond
+   84     | cond • "or" cond
+   85     | "not" cond •
+
+    $default  reduce using rule 85 (cond)
+
+
+State 80
+
+   63 expr: '(' • expr ')'
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 120
+
+
+State 81
+
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   74     | '!' expr •
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+
+    '|'  shift, and go to state 92
+    '&'  shift, and go to state 93
+    '+'  shift, and go to state 94
+    '-'  shift, and go to state 95
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+
+    $default  reduce using rule 74 (expr)
+
+
+State 82
+
+   65 expr: '+' expr •
+   67     | expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+
+    $default  reduce using rule 65 (expr)
+
+
+State 83
+
+   66 expr: '-' expr •
+   67     | expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+
+    $default  reduce using rule 66 (expr)
+
+
+State 84
+
+   63 expr: '(' expr • ')'
+   67     | expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+   77 cond: expr • '>' expr
+   78     | expr • '<' expr
+   79     | expr • ">=" expr
+   80     | expr • "<=" expr
+   81     | expr • '=' expr
+   82     | expr • "<>" expr
+   87     | expr •
+
+    ">="  shift, and go to state 86
+    "<="  shift, and go to state 87
+    "<>"  shift, and go to state 88
+    '='   shift, and go to state 89
+    '<'   shift, and go to state 90
+    '>'   shift, and go to state 91
+    '|'   shift, and go to state 92
+    '&'   shift, and go to state 93
+    '+'   shift, and go to state 94
+    '-'   shift, and go to state 95
+    '*'   shift, and go to state 96
+    '/'   shift, and go to state 97
+    '%'   shift, and go to state 98
+    ')'   shift, and go to state 121
+
+    ')'       [reduce using rule 87 (cond)]
+    $default  reduce using rule 87 (cond)
+
+    shift/reduce conflict on token ')':
+       87 cond: expr •
+       63 expr: '(' expr • ')'
+      Example: '(' expr • ')'
+      Shift derivation
+        cond
+        ↳ 87: expr
+              ↳ 63: '(' expr • ')'
+      Reduce derivation
+        cond
+        ↳ 86: '(' cond         ')'
+                  ↳ 87: expr •
+
+
+
+State 85
+
+   83 cond: cond • "and" cond
+   84     | cond • "or" cond
+   86     | '(' cond • ')'
+
+    "and"  shift, and go to state 99
+    "or"   shift, and go to state 100
+    ')'    shift, and go to state 122
+
+
+State 86
+
+   79 cond: expr ">=" • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 123
+
+
+State 87
+
+   80 cond: expr "<=" • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 124
+
+
+State 88
+
+   82 cond: expr "<>" • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 125
+
+
+State 89
+
+   81 cond: expr '=' • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 126
+
+
+State 90
+
+   78 cond: expr '<' • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 127
+
+
+State 91
+
+   77 cond: expr '>' • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 128
+
+
+State 92
+
+   76 expr: expr '|' • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 129
+
+
+State 93
+
+   75 expr: expr '&' • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 130
+
+
+State 94
+
+   67 expr: expr '+' • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 131
+
+
+State 95
+
+   68 expr: expr '-' • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 132
+
+
+State 96
+
+   69 expr: expr '*' • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 133
+
+
+State 97
+
+   70 expr: expr '/' • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 134
+
+
+State 98
+
+   71 expr: expr '%' • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 135
+
+
+State 99
+
+   83 cond: cond "and" • cond
+
+    "false"   shift, and go to state 45
+    "not"     shift, and go to state 46
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 54
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 57
+    cond       go to state 136
+
+
+State 100
+
+   84 cond: cond "or" • cond
+
+    "false"   shift, and go to state 45
+    "not"     shift, and go to state 46
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 54
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 57
+    cond       go to state 137
+
+
+State 101
+
+   47 if_stmts: "if" cond ':' • stmt_list auto_end opt_elif_else
+
+    "break"     shift, and go to state 17
+    "continue"  shift, and go to state 18
+    "exit"      shift, and go to state 20
+    "if"        shift, and go to state 21
+    "loop"      shift, and go to state 22
+    "return"    shift, and go to state 23
+    "skip"      shift, and go to state 24
+    T_id        shift, and go to state 26
+    T_string    shift, and go to state 27
+
+    stmt_list  go to state 138
+    stmt       go to state 32
+    if_stmts   go to state 33
+    l_value    go to state 34
+    loop       go to state 35
+    proc_call  go to state 36
+    func_call  go to state 37
+
+
+State 102
+
+   54 loop: "loop" T_id ':' • stmt_list auto_end
+
+    "break"     shift, and go to state 17
+    "continue"  shift, and go to state 18
+    "exit"      shift, and go to state 20
+    "if"        shift, and go to state 21
+    "loop"      shift, and go to state 22
+    "return"    shift, and go to state 23
+    "skip"      shift, and go to state 24
+    T_id        shift, and go to state 26
+    T_string    shift, and go to state 27
+
+    stmt_list  go to state 139
+    stmt       go to state 32
+    if_stmts   go to state 33
+    l_value    go to state 34
+    loop       go to state 35
+    proc_call  go to state 36
+    func_call  go to state 37
+
+
+State 103
+
+   29 stmt_list: stmt_list • stmt
+   55 loop: "loop" ':' stmt_list • auto_end
+
+    "break"     shift, and go to state 17
+    "continue"  shift, and go to state 18
+    "exit"      shift, and go to state 20
+    "if"        shift, and go to state 21
+    "loop"      shift, and go to state 22
+    "return"    shift, and go to state 23
+    "skip"      shift, and go to state 24
+    T_id        shift, and go to state 26
+    T_string    shift, and go to state 27
+    auto_end    shift, and go to state 140
+
+    stmt       go to state 66
+    if_stmts   go to state 33
+    l_value    go to state 34
+    loop       go to state 35
+    proc_call  go to state 36
+    func_call  go to state 37
+
+
+State 104
+
+   40 stmt: "return" ':' expr •
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+
+    '|'  shift, and go to state 92
+    '&'  shift, and go to state 93
+    '+'  shift, and go to state 94
+    '-'  shift, and go to state 95
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+
+    $default  reduce using rule 40 (stmt)
+
+
+State 105
+
+   34 local_def: "var" id_list "is" • type
+
+    "byte"  shift, and go to state 10
+    "int"   shift, and go to state 11
+
+    type       go to state 141
+    data_type  go to state 13
+
+
+State 106
+
+   58 func_call: T_id '(' ')' •
+
+    $default  reduce using rule 58 (func_call)
+
+
+State 107
+
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+   88 expr_list: expr •
+
+    '|'  shift, and go to state 92
+    '&'  shift, and go to state 93
+    '+'  shift, and go to state 94
+    '-'  shift, and go to state 95
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+
+    $default  reduce using rule 88 (expr_list)
+
+
+State 108
+
+   59 func_call: T_id '(' expr_list • ')'
+   89 expr_list: expr_list • ',' expr
+
+    ')'  shift, and go to state 142
+    ','  shift, and go to state 143
+
+
+State 109
+
+   57 proc_call: T_id ':' expr_list •
+   89 expr_list: expr_list • ',' expr
+
+    ','  shift, and go to state 143
+
+    $default  reduce using rule 57 (proc_call)
+
+
+State 110
+
+   36 stmt: l_value ":=" expr •
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+
+    '|'  shift, and go to state 92
+    '&'  shift, and go to state 93
+    '+'  shift, and go to state 94
+    '-'  shift, and go to state 95
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+
+    $default  reduce using rule 36 (stmt)
+
+
+State 111
+
+   53 l_value: l_value '[' expr • ']'
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+
+    '|'  shift, and go to state 92
+    '&'  shift, and go to state 93
+    '+'  shift, and go to state 94
+    '-'  shift, and go to state 95
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+    ']'  shift, and go to state 144
+
+
+State 112
+
+    8 type: type '[' T_number ']' •
+
+    $default  reduce using rule 8 (type)
+
+
+State 113
+
+   22 array_type: "byte" '[' • ']'
+   24           | "byte" '[' • T_number ']'
+
+    T_number  shift, and go to state 145
+    ']'       shift, and go to state 146
+
+
+State 114
+
+   21 array_type: "int" '[' • ']'
+   23           | "int" '[' • T_number ']'
+
+    T_number  shift, and go to state 147
+    ']'       shift, and go to state 148
+
+
+State 115
+
+   17 ref_data_type: "ref" "byte" •
+
+    $default  reduce using rule 17 (ref_data_type)
+
+
+State 116
+
+   16 ref_data_type: "ref" "int" •
+
+    $default  reduce using rule 16 (ref_data_type)
+
+
+State 117
+
+   13 opt_fpar: id_list "as" ref_data_type ',' • opt_fpar
+
+    T_id  shift, and go to state 14
+
+    opt_fpar  go to state 149
+    id_list   go to state 16
+
+
+State 118
+
+   15 opt_fpar: id_list "as" fpar_type ',' • opt_fpar
+
+    T_id  shift, and go to state 14
+
+    opt_fpar  go to state 150
+    id_list   go to state 16
+
+
+State 119
+
+   25 array_type: array_type '[' • T_number ']'
+
+    T_number  shift, and go to state 151
+
+
+State 120
+
+   63 expr: '(' expr • ')'
+   67     | expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+
+    '|'  shift, and go to state 92
+    '&'  shift, and go to state 93
+    '+'  shift, and go to state 94
+    '-'  shift, and go to state 95
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+    ')'  shift, and go to state 121
+
+
+State 121
+
+   63 expr: '(' expr ')' •
+
+    $default  reduce using rule 63 (expr)
+
+
+State 122
+
+   86 cond: '(' cond ')' •
+
+    $default  reduce using rule 86 (cond)
+
+
+State 123
+
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+   79 cond: expr ">=" expr •
+
+    '|'  shift, and go to state 92
+    '&'  shift, and go to state 93
+    '+'  shift, and go to state 94
+    '-'  shift, and go to state 95
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+
+    $default  reduce using rule 79 (cond)
+
+
+State 124
+
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+   80 cond: expr "<=" expr •
+
+    '|'  shift, and go to state 92
+    '&'  shift, and go to state 93
+    '+'  shift, and go to state 94
+    '-'  shift, and go to state 95
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+
+    $default  reduce using rule 80 (cond)
+
+
+State 125
+
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+   82 cond: expr "<>" expr •
+
+    '|'  shift, and go to state 92
+    '&'  shift, and go to state 93
+    '+'  shift, and go to state 94
+    '-'  shift, and go to state 95
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+
+    $default  reduce using rule 82 (cond)
+
+
+State 126
+
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+   81 cond: expr '=' expr •
+
+    '|'  shift, and go to state 92
+    '&'  shift, and go to state 93
+    '+'  shift, and go to state 94
+    '-'  shift, and go to state 95
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+
+    $default  reduce using rule 81 (cond)
+
+
+State 127
+
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+   78 cond: expr '<' expr •
+
+    '|'  shift, and go to state 92
+    '&'  shift, and go to state 93
+    '+'  shift, and go to state 94
+    '-'  shift, and go to state 95
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+
+    $default  reduce using rule 78 (cond)
+
+
+State 128
+
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+   77 cond: expr '>' expr •
+
+    '|'  shift, and go to state 92
+    '&'  shift, and go to state 93
+    '+'  shift, and go to state 94
+    '-'  shift, and go to state 95
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+
+    $default  reduce using rule 77 (cond)
+
+
+State 129
+
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+   76     | expr '|' expr •
+
+    '&'  shift, and go to state 93
+    '+'  shift, and go to state 94
+    '-'  shift, and go to state 95
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+
+    $default  reduce using rule 76 (expr)
+
+
+State 130
+
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   75     | expr '&' expr •
+   76     | expr • '|' expr
+
+    '+'  shift, and go to state 94
+    '-'  shift, and go to state 95
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+
+    $default  reduce using rule 75 (expr)
+
+
+State 131
+
+   67 expr: expr • '+' expr
+   67     | expr '+' expr •
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+
+    $default  reduce using rule 67 (expr)
+
+
+State 132
+
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   68     | expr '-' expr •
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+
+    $default  reduce using rule 68 (expr)
+
+
+State 133
+
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   69     | expr '*' expr •
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+
+    $default  reduce using rule 69 (expr)
+
+
+State 134
+
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   70     | expr '/' expr •
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+
+    $default  reduce using rule 70 (expr)
+
+
+State 135
+
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   71     | expr '%' expr •
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+
+    $default  reduce using rule 71 (expr)
+
+
+State 136
+
+   83 cond: cond • "and" cond
+   83     | cond "and" cond •
+   84     | cond • "or" cond
+
+    $default  reduce using rule 83 (cond)
+
+
+State 137
+
+   83 cond: cond • "and" cond
+   84     | cond • "or" cond
+   84     | cond "or" cond •
+
+    "and"  shift, and go to state 99
+
+    $default  reduce using rule 84 (cond)
+
+
+State 138
+
+   29 stmt_list: stmt_list • stmt
+   47 if_stmts: "if" cond ':' stmt_list • auto_end opt_elif_else
+
+    "break"     shift, and go to state 17
+    "continue"  shift, and go to state 18
+    "exit"      shift, and go to state 20
+    "if"        shift, and go to state 21
+    "loop"      shift, and go to state 22
+    "return"    shift, and go to state 23
+    "skip"      shift, and go to state 24
+    T_id        shift, and go to state 26
+    T_string    shift, and go to state 27
+    auto_end    shift, and go to state 152
+
+    stmt       go to state 66
+    if_stmts   go to state 33
+    l_value    go to state 34
+    loop       go to state 35
+    proc_call  go to state 36
+    func_call  go to state 37
+
+
+State 139
+
+   29 stmt_list: stmt_list • stmt
+   54 loop: "loop" T_id ':' stmt_list • auto_end
+
+    "break"     shift, and go to state 17
+    "continue"  shift, and go to state 18
+    "exit"      shift, and go to state 20
+    "if"        shift, and go to state 21
+    "loop"      shift, and go to state 22
+    "return"    shift, and go to state 23
+    "skip"      shift, and go to state 24
+    T_id        shift, and go to state 26
+    T_string    shift, and go to state 27
+    auto_end    shift, and go to state 153
+
+    stmt       go to state 66
+    if_stmts   go to state 33
+    l_value    go to state 34
+    loop       go to state 35
+    proc_call  go to state 36
+    func_call  go to state 37
+
+
+State 140
+
+   55 loop: "loop" ':' stmt_list auto_end •
+
+    $default  reduce using rule 55 (loop)
+
+
+State 141
+
+    8 type: type • '[' T_number ']'
+   34 local_def: "var" id_list "is" type •
+
+    '['  shift, and go to state 39
+
+    $default  reduce using rule 34 (local_def)
+
+
+State 142
+
+   59 func_call: T_id '(' expr_list ')' •
+
+    $default  reduce using rule 59 (func_call)
+
+
+State 143
+
+   89 expr_list: expr_list ',' • expr
+
+    "false"   shift, and go to state 45
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 80
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 154
+
+
+State 144
+
+   53 l_value: l_value '[' expr ']' •
+
+    $default  reduce using rule 53 (l_value)
+
+
+State 145
+
+   24 array_type: "byte" '[' T_number • ']'
+
+    ']'  shift, and go to state 155
+
+
+State 146
+
+   22 array_type: "byte" '[' ']' •
+
+    $default  reduce using rule 22 (array_type)
+
+
+State 147
+
+   23 array_type: "int" '[' T_number • ']'
+
+    ']'  shift, and go to state 156
+
+
+State 148
+
+   21 array_type: "int" '[' ']' •
+
+    $default  reduce using rule 21 (array_type)
+
+
+State 149
+
+   13 opt_fpar: id_list "as" ref_data_type ',' opt_fpar •
+
+    $default  reduce using rule 13 (opt_fpar)
+
+
+State 150
+
+   15 opt_fpar: id_list "as" fpar_type ',' opt_fpar •
+
+    $default  reduce using rule 15 (opt_fpar)
+
+
+State 151
+
+   25 array_type: array_type '[' T_number • ']'
+
+    ']'  shift, and go to state 157
+
+
+State 152
+
+   47 if_stmts: "if" cond ':' stmt_list auto_end • opt_elif_else
+
+    "elif"  shift, and go to state 158
+    "else"  shift, and go to state 159
+
+    $default  reduce using rule 48 (opt_elif_else)
+
+    opt_elif_else  go to state 160
+
+
+State 153
+
+   54 loop: "loop" T_id ':' stmt_list auto_end •
+
+    $default  reduce using rule 54 (loop)
+
+
+State 154
+
+   67 expr: expr • '+' expr
+   68     | expr • '-' expr
+   69     | expr • '*' expr
+   70     | expr • '/' expr
+   71     | expr • '%' expr
+   75     | expr • '&' expr
+   76     | expr • '|' expr
+   89 expr_list: expr_list ',' expr •
+
+    '|'  shift, and go to state 92
+    '&'  shift, and go to state 93
+    '+'  shift, and go to state 94
+    '-'  shift, and go to state 95
+    '*'  shift, and go to state 96
+    '/'  shift, and go to state 97
+    '%'  shift, and go to state 98
+
+    $default  reduce using rule 89 (expr_list)
+
+
+State 155
+
+   24 array_type: "byte" '[' T_number ']' •
+
+    $default  reduce using rule 24 (array_type)
+
+
+State 156
+
+   23 array_type: "int" '[' T_number ']' •
+
+    $default  reduce using rule 23 (array_type)
+
+
+State 157
+
+   25 array_type: array_type '[' T_number ']' •
+
+    $default  reduce using rule 25 (array_type)
+
+
+State 158
+
+   50 opt_elif_else: "elif" • cond ':' stmt_list auto_end opt_elif_else
+
+    "false"   shift, and go to state 45
+    "not"     shift, and go to state 46
+    "true"    shift, and go to state 47
+    T_const   shift, and go to state 48
+    T_id      shift, and go to state 49
+    T_number  shift, and go to state 50
+    T_string  shift, and go to state 27
+    '!'       shift, and go to state 51
+    '+'       shift, and go to state 52
+    '-'       shift, and go to state 53
+    '('       shift, and go to state 54
+
+    l_value    go to state 55
+    func_call  go to state 56
+    expr       go to state 57
+    cond       go to state 161
+
+
+State 159
+
+   49 opt_elif_else: "else" • ':' stmt_list auto_end
+
+    ':'  shift, and go to state 162
+
+
+State 160
+
+   47 if_stmts: "if" cond ':' stmt_list auto_end opt_elif_else •
+
+    $default  reduce using rule 47 (if_stmts)
+
+
+State 161
+
+   50 opt_elif_else: "elif" cond • ':' stmt_list auto_end opt_elif_else
+   83 cond: cond • "and" cond
+   84     | cond • "or" cond
+
+    "and"  shift, and go to state 99
+    "or"   shift, and go to state 100
+    ':'    shift, and go to state 163
+
+
+State 162
+
+   49 opt_elif_else: "else" ':' • stmt_list auto_end
+
+    "break"     shift, and go to state 17
+    "continue"  shift, and go to state 18
+    "exit"      shift, and go to state 20
+    "if"        shift, and go to state 21
+    "loop"      shift, and go to state 22
+    "return"    shift, and go to state 23
+    "skip"      shift, and go to state 24
+    T_id        shift, and go to state 26
+    T_string    shift, and go to state 27
+
+    stmt_list  go to state 164
+    stmt       go to state 32
+    if_stmts   go to state 33
+    l_value    go to state 34
+    loop       go to state 35
+    proc_call  go to state 36
+    func_call  go to state 37
+
+
+State 163
+
+   50 opt_elif_else: "elif" cond ':' • stmt_list auto_end opt_elif_else
+
+    "break"     shift, and go to state 17
+    "continue"  shift, and go to state 18
+    "exit"      shift, and go to state 20
+    "if"        shift, and go to state 21
+    "loop"      shift, and go to state 22
+    "return"    shift, and go to state 23
+    "skip"      shift, and go to state 24
+    T_id        shift, and go to state 26
+    T_string    shift, and go to state 27
+
+    stmt_list  go to state 165
+    stmt       go to state 32
+    if_stmts   go to state 33
+    l_value    go to state 34
+    loop       go to state 35
+    proc_call  go to state 36
+    func_call  go to state 37
+
+
+State 164
+
+   29 stmt_list: stmt_list • stmt
+   49 opt_elif_else: "else" ':' stmt_list • auto_end
+
+    "break"     shift, and go to state 17
+    "continue"  shift, and go to state 18
+    "exit"      shift, and go to state 20
+    "if"        shift, and go to state 21
+    "loop"      shift, and go to state 22
+    "return"    shift, and go to state 23
+    "skip"      shift, and go to state 24
+    T_id        shift, and go to state 26
+    T_string    shift, and go to state 27
+    auto_end    shift, and go to state 166
+
+    stmt       go to state 66
+    if_stmts   go to state 33
+    l_value    go to state 34
+    loop       go to state 35
+    proc_call  go to state 36
+    func_call  go to state 37
+
+
+State 165
+
+   29 stmt_list: stmt_list • stmt
+   50 opt_elif_else: "elif" cond ':' stmt_list • auto_end opt_elif_else
+
+    "break"     shift, and go to state 17
+    "continue"  shift, and go to state 18
+    "exit"      shift, and go to state 20
+    "if"        shift, and go to state 21
+    "loop"      shift, and go to state 22
+    "return"    shift, and go to state 23
+    "skip"      shift, and go to state 24
+    T_id        shift, and go to state 26
+    T_string    shift, and go to state 27
+    auto_end    shift, and go to state 167
+
+    stmt       go to state 66
+    if_stmts   go to state 33
+    l_value    go to state 34
+    loop       go to state 35
+    proc_call  go to state 36
+    func_call  go to state 37
+
+
+State 166
+
+   49 opt_elif_else: "else" ':' stmt_list auto_end •
+
+    $default  reduce using rule 49 (opt_elif_else)
+
+
+State 167
+
+   50 opt_elif_else: "elif" cond ':' stmt_list auto_end • opt_elif_else
+
+    "elif"  shift, and go to state 158
+    "else"  shift, and go to state 159
+
+    $default  reduce using rule 48 (opt_elif_else)
+
+    opt_elif_else  go to state 168
+
+
+State 168
+
+   50 opt_elif_else: "elif" cond ':' stmt_list auto_end opt_elif_else •
+
+    $default  reduce using rule 50 (opt_elif_else)

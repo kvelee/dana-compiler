@@ -1,0 +1,8 @@
+.vscode/
+parser_test/
+*.txt
+*.pdf
+*.sh
+
+danac2_debug
+danac_debug
