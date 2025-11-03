@@ -73,13 +73,13 @@ D [0-9]
 "true" { return T_true; } 
 "var" { return T_var; }
 
-\'({L}|{D}|\\[ntr0\\\'\"]\') { yylval.str = new std::string(yytext); return T_const; }
+\'(\\[ntr0\\\'\"]|{L}|{D}|\+|\*|\-|\/|.|\ )\' { yylval.cnst= yytext[1];  return T_const; }
 \'\\x[0-9a-fA-F]{2}\' { yylval.str = new std::string(yytext); return T_const; }
 
 ":=" { return T_sep; }
 [\(\)\[\]\,\:] { return yytext[0]; }
 
-{L}({L}|{D})* { yylval.str = new std::string(yytext); return T_id; }
+{L}({L}|{D}|_)* { yylval.str = new std::string(yytext); return T_id; }
 {D}+ { yylval.num = atoi(yytext); return T_number; }
 
 ^[ \t]*\n { ; }
@@ -139,7 +139,7 @@ D [0-9]
     return 0; 
 }
 
-. { printf("Unrecognized character: %s\n", yytext); }
+. { printf("Unrecognized character: %s at line %d\n", yytext,yylineno); }
 %%
 
 void init_indent_stack() {

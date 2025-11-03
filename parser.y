@@ -58,7 +58,9 @@ void print_guide_stack() {
         printf("  %s at position %d (line %d)\n", temp->keyword, temp->position, temp->line);
         temp = temp->next;
     }
-}
+} 
+
+SymbolTable st;
 %}
 
 %define parse.error verbose
@@ -100,9 +102,9 @@ void print_guide_stack() {
 %union {
     AST *ast;
     Header *hd;
-    DataType type;
-    Type *tp;
-    FparType *fpt;
+    SymbolType type;
+    Type *tp;      //-- Into one, BETTER IMPLEMENTATION!
+    ArrayType *atp;//--
     Id_List *idlst;
     Opt_Fpar *optfp;
     StmtList *st_list;
@@ -122,9 +124,10 @@ void print_guide_stack() {
     Proc_Call *pcall;
     std::string *str; 
     int num;
+    char cnst;
 }
 
-%token<str> T_const
+%token<cnst> T_const
 %token<str> T_id  
 %token<num> T_number  
 %token<str> T_string
@@ -139,9 +142,9 @@ void print_guide_stack() {
 %type<ldl> local_def_list
 %type<st_list> stmt_list
 %type<hd> header
-%type<type> data_type ref_data_type
-%type<tp> type 
-%type<fpt> fpar_type array_type
+%type<type> data_type ref_data_type 
+%type<tp> type fpar_type
+%type<atp>  array_type
 %type<idlst> id_list
 %type<optfp> opt_fpar
 %type<lb> loop
@@ -168,11 +171,13 @@ void print_guide_stack() {
 
 %%
 program:
-    func_def { std::cout<< "AST: " << *$1 <<std::endl;  }
+    func_def { //std::cout<< "AST: " << *$1 <<std::endl; 
+        $1->sem();
+    }
 ;
 
 func_def:
-    "def" header local_def_list stmt_list auto_end { $$ = new FuncDefBlock($2,$3,$4); }
+    "def" header local_def_list stmt_list auto_end {$$ = new FuncDefBlock($2,$3,$4); }
 ;
 
 func_decl:
@@ -192,8 +197,8 @@ type:
 ;
 
 data_type:
-    "int"  { $$ = TYPE_int;}
-|   "byte" { $$ = TYPE_byte;}
+    "int"  { $$ = TYPE_INT;}
+|   "byte" { $$ = TYPE_BYTE;}
 ;
 
 opt_fpar:
@@ -204,32 +209,33 @@ opt_fpar:
 ;
 
 ref_data_type:
-    "ref" "int" { $$ = REF_int; }
-|   "ref" "byte" { $$ = REF_byte;}
+    "ref" "int" { $$ = TYPE_REF_INT; }
+|   "ref" "byte" { $$ = TYPE_REF_BYTE;}
 ;
 
 fpar_type:
-    "int" { $$ = new FparType(TYPE_int); }
-|   "byte" { $$ = new FparType(TYPE_byte); }
+    "int" { $$ = new Type(TYPE_INT); }
+|   "byte" { $$ = new Type(TYPE_BYTE); }
 |   array_type { $$ = $1; }
 ;
 
 array_type:
-    "int" '[' ']' { $$ = new ArrayType(TYPE_int,0); }
-|   "byte" '[' ']' { $$ = new ArrayType(TYPE_byte,0); }
-|   "int" '[' T_number ']' { $$ = new ArrayType(TYPE_int, $3); }
-|   "byte" '[' T_number ']' { $$ = new ArrayType(TYPE_byte, $3); }
+    "int" '[' ']' { $$ = new ArrayType(TYPE_INT); }
+|   "byte" '[' ']' { $$ = new ArrayType(TYPE_BYTE); }
+|   "int" '[' T_number ']' { $$ = new ArrayType(TYPE_INT, $3); }
+|   "byte" '[' T_number ']' { $$ = new ArrayType(TYPE_BYTE, $3); }
 |   array_type '[' T_number ']' { $1->add_dim($3) ; $$=$1; }
 ;
 
 id_list:
-      T_id { $$ = new Id_List(*$1); }
-    | id_list T_id { $1->append(*$2); $$ = $1; }
+      T_id { $$ = new Id_List(new Id($1)); }
+    | id_list T_id { $1->append(new Id($2)); $$ = $1; }
 ;
 
 stmt_list:
       stmt { $$ = new StmtList($1); }
     | stmt_list stmt { $1->append($2); $$ = $1; }
+    | "begin" stmt_list "end" {$$=$2;}
 ;
 
 local_def_list: 
@@ -262,12 +268,14 @@ if_stmts:
    "if" cond ':' stmt_list auto_end opt_elif_else {
         $$ = new IfBlock($2,$4,$6);
 }
-//|  "if" cond ':' stmt_list auto_end "else" ':' stmt_list auto_end { 
+
+/*|  "if" cond ':' stmt_list auto_end "else" ':' stmt_list auto_end { 
 //        
 //        $$ = new IfBlock($2,$4,$8);
 //    }
 //|   "if" cond ':' stmt_list auto_end "elif" cond ':' stmt_list auto_end opt_elif_else {
-//        $$ = new IfBlock($2,$4,$7,$9,$11);}
+       $$ = new IfBlock($2,$4,$7,$9,$11);}
+*/ 
 ;
 
 opt_elif_else:
@@ -301,7 +309,7 @@ func_call:
 
 expr:
       T_number                { $$ = new Number($1); }
-    | T_const                 { $$ = new Const($1); }
+    | T_const                 { $$ = new CharConst($1); }
     | l_value                 { $$ = $1; }
     | '(' expr ')'            { $$ = $2; }
     | func_call               { $$ = $1; }
@@ -347,10 +355,12 @@ void yyerror(const char *msg) {
 int main() {
     init_indent_stack();
     int result = yyparse();
-    if(result == 0)
-        printf("Success.\n");
-    else
-        printf("Parsing failed.\n");
+    if (result == 0)
+        printf("\033[1;32mSuccess.\033[0m\n");
+    else {
+        printf("\033[1;31mParsing failed.\033[0m\n");
+        sleep(10);
+    }
     
     free_guide_stack();
     return result;
