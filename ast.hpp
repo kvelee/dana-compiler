@@ -8,13 +8,20 @@
 #include <map>
 #include "symbol.hpp"
 
+
 extern int yylineno;
+
+namespace llvm {
+    class Value;
+};
 
 class AST {
 public:
     virtual void printOn(std::ostream &out) const = 0;
 
     virtual void sem() {}
+
+    virtual llvm::Value* codegen() = 0; // Implemented in: codegen.cpp
 };
 
 inline std::ostream &operator<<(std::ostream &out, const AST &ast) {
@@ -74,6 +81,8 @@ public:
         return dt;
     }
 
+    virtual llvm::Value* codegen() override;
+
 protected:
     SymbolType dt;
     std::vector<int> dim;
@@ -126,6 +135,8 @@ public:
         return dt;
     }
 
+    virtual llvm::Value* codegen() override;
+
 private:
     // removed duplicate data members
 };
@@ -143,11 +154,11 @@ public:
             if ((symbolt == TYPE_BYTE && symboltype == TYPE_BOOL) ||
                 (symbolt == TYPE_BOOL && symboltype == TYPE_BYTE)) return;
             // allow ref int <-> int
-            if(symbolt == TYPE_REF_INT && symboltype == TYPE_INT \
-              || symbolt == TYPE_INT && symboltype ==TYPE_REF_INT) return;
+            if((symbolt == TYPE_REF_INT && symboltype == TYPE_INT) \
+              || (symbolt == TYPE_INT && symboltype ==TYPE_REF_INT)) return;
 
-            if(symbolt == TYPE_REF_BYTE && symboltype == TYPE_BYTE \
-              || symbolt == TYPE_BYTE && symboltype ==TYPE_REF_BYTE) return;
+            if((symbolt == TYPE_REF_BYTE && symboltype == TYPE_BYTE) \
+              || (symbolt == TYPE_BYTE && symboltype ==TYPE_REF_BYTE)) return;
             
 
             if(symboltype == TYPE_FUNC) return;
@@ -212,6 +223,9 @@ public:
         symboltype = TYPE_INVALID;
     }
 }
+
+    virtual llvm::Value* codegen() override;
+
 private:
     std::string id;
 };
@@ -243,6 +257,8 @@ public:
     std::vector<Id *> getIds() {
         return id_list;
     }
+
+    virtual llvm::Value* codegen() override;
 
 private:
     std::vector<Id *> id_list;
@@ -286,6 +302,8 @@ public:
         out << ")\n";
     }
 
+    virtual llvm::Value* codegen() override;
+
     virtual void sem() override {
         
         //this->printOn(std::cout);
@@ -305,6 +323,21 @@ public:
         }
 
         if(next!=nullptr) next->sem();
+    }
+
+    // Extract parameter IDs and their types for codegen
+    std::vector<std::pair<std::string, SymbolType>> getParams() const {
+        std::vector<std::pair<std::string, SymbolType>> result;
+        std::vector<Id *> ids = const_cast<Id_List&>(id_list).getIds();
+        for (Id *id : ids) {
+            SymbolType type = (array_type != nullptr) ? array_type->getsymbol() : data_type;
+            result.push_back({id->getName(), type});
+        }
+        if (next != nullptr) {
+            auto nextParams = next->getParams();
+            result.insert(result.end(), nextParams.begin(), nextParams.end());
+        }
+        return result;
     }
 
 private:
@@ -330,6 +363,8 @@ public:
         if(oft) out << *oft;
         out << ")";
     }
+
+    virtual llvm::Value* codegen() override;
 
     virtual void sem() override {
     //if (st.lookup(Id_val->getName()) != nullptr) {
@@ -357,6 +392,10 @@ public:
         return tp;
     }
 
+    Opt_Fpar *getOpt_Fpar() const {
+        return oft;
+    }
+
 private:
     Id *Id_val;
     Type *tp;
@@ -369,12 +408,16 @@ class Stmt : public AST{
 public:
     Stmt() {}
 
+    virtual ~Stmt() = default;
+
     virtual void printOn(std::ostream &out) const override {
         out << "Stmt Statement";
     }
     //Implementation of run()/exec()
 
     //virtual void run() const = 0;
+
+    virtual llvm::Value* codegen() override;
 };
 
 class StmtList : public Stmt {
@@ -382,6 +425,8 @@ class StmtList : public Stmt {
         StmtList(Stmt *stmt) {
             stmt_list.push_back(stmt);  
         }
+
+        virtual llvm::Value* codegen() override;
         
         // Implementation of run() commented out
         // virtual void run() const {
@@ -427,6 +472,8 @@ public:
         out << "Skip Statement" ;
     }
 
+    virtual llvm::Value* codegen() override;
+
 };
 
 class ExitStmt : public Stmt {
@@ -436,6 +483,8 @@ public:
     void printOn(std::ostream &out) const override {
         out << "Exit Statement";
     }
+
+    virtual llvm::Value* codegen() override;
 
     virtual void sem() override {
         SymbolEntry *current_function = st.function();
@@ -471,6 +520,8 @@ public:
     //     loop_stmt_list->run();
     // }
 
+    virtual llvm::Value* codegen() override;
+
     virtual void sem() override {
         st.openScope();
         if(ID.empty()) st.insert("",LOOP);
@@ -489,6 +540,8 @@ public:
     BreakStmt() {}
 
     BreakStmt(std::string *s) : id(*s){}
+
+    virtual llvm::Value* codegen() override;
 
     void printOn(std::ostream &out) const override {
         out << "Break Statement";
@@ -514,6 +567,8 @@ public:
     ContStmt() {}
 
     ContStmt(std::string *s) : id(*s){}
+
+    virtual llvm::Value* codegen() override;
 
     void printOn(std::ostream &out) const override {
         out << "Continue Statement";
@@ -554,6 +609,8 @@ public:
     // Declaration only - definition comes later, after LocalDefList is fully defined.
     void printOn(std::ostream &out) const override;
 
+    virtual llvm::Value* codegen() override;
+
     // Declaration only - definition comes later, same as above
     virtual void sem() override ;
 
@@ -573,6 +630,8 @@ public:
         out << "FuncDecl: " << *hd;
     }
 
+    virtual llvm::Value* codegen() override;
+
     virtual void sem() override {
         //hd->sem();
     }
@@ -584,11 +643,11 @@ private:
 // -------------------- LocalDef --------------------
 class LocalDef : public AST {
 public:
-    LocalDef(FuncDefBlock *fdef) : func_def(fdef), func_decl(nullptr), idlst(nullptr), tp(nullptr) {}
+    LocalDef(FuncDefBlock *fdef) : func_decl(nullptr), func_def(fdef), idlst(nullptr), tp(nullptr) {}
 
     LocalDef(FuncDecl *fdecl) : func_decl(fdecl), func_def(nullptr), idlst(nullptr), tp(nullptr) {}
 
-    LocalDef(Id_List *il, Type *t) : idlst(il), tp(t), func_decl(nullptr), func_def(nullptr) {}
+    LocalDef(Id_List *il, Type *t) : func_decl(nullptr), func_def(nullptr), idlst(il), tp(t) {}
 
     void printOn(std::ostream &out) const override {
         out << "Local Def: ";
@@ -603,6 +662,8 @@ public:
         }
     }
     
+    virtual llvm::Value* codegen() override;
+
     virtual void sem() override {
         //std::cout<<"Inside LocalDef\n";
         if(func_def) func_def->sem();
@@ -644,6 +705,8 @@ public:
     void append(LocalDef *s) {
         local_def_list.push_back(s);
     }
+
+    virtual llvm::Value* codegen() override;
 
     virtual void sem() override {
         for (LocalDef* ld : local_def_list)
@@ -717,6 +780,12 @@ public:
         }
     }
 
+    const std::vector<Expr*>& getExprs() const { 
+        return expr_list; 
+    }
+
+    virtual llvm::Value* codegen() override;
+
 private:
     std::vector<Expr*> expr_list;
 };
@@ -739,6 +808,8 @@ public:
         if (!expr_list) expr_list = new ExprList();
         expr_list->append(e);
     }
+
+    virtual llvm::Value* codegen() override;
 
     virtual void sem() override {
         if (id) {
@@ -769,6 +840,8 @@ public:
     //     return numb;
     // }
 
+    virtual llvm::Value* codegen() override;
+
     virtual void sem() override {
         symboltype=TYPE_INT;
     }
@@ -785,6 +858,8 @@ public:
         out << "CharConst ('" << character << "')";
     }
 
+    virtual llvm::Value* codegen() override;
+
     virtual void sem() override {}
 
 private:
@@ -799,6 +874,8 @@ public:
     void printOn(std::ostream &out) const override {
         out << "UniOp Expr: ( "<< op << " "<<*e;
     }
+
+    virtual llvm::Value* codegen() override;
 
     //I assume that UniOp works only with integers
     virtual void sem() override {
@@ -818,6 +895,8 @@ public:
     void printOn(std::ostream &out) const override {
         out << "BinOp Expr: ( " <<*left<<" "<< op << " "<<*right<< " )";
     }
+
+    virtual llvm::Value* codegen() override;
 
     // virtual int eval() const {
     //     switch (op)
@@ -881,6 +960,8 @@ public:
         out<<" )";
     }
 
+    virtual llvm::Value* codegen() override;
+
     // virtual int eval() const {
     //     return flag;
     // }
@@ -899,6 +980,8 @@ public:
     void printOn(std::ostream &out) const override {
         out << "BoolBinOp Expr: ( " <<*left<<" "<< op << " "<<*right<< " )";
     }
+
+    virtual llvm::Value* codegen() override;
 
     // virtual int eval() const {
     //     if (op=='&') return left->eval() && right->eval();
@@ -942,6 +1025,8 @@ public:
 
     }
 
+    virtual llvm::Value* codegen() override;
+
     virtual void sem() override {
         if (!id) {
             yyerror("Function call with null id");
@@ -982,6 +1067,8 @@ public:
         
     }
 
+    virtual llvm::Value* codegen() override;
+
     virtual void sem() override {
         if (!id) {
             yyerror("Procedure call with null id"); 
@@ -1014,6 +1101,8 @@ public:
         out << "Return Statement : " << *e;
     }
 
+    virtual llvm::Value* codegen() override;
+
     //e must have the same type that the block/function returns
     virtual void sem() override {
         SymbolEntry *function_entry = st.function(); //get the most recent function
@@ -1032,6 +1121,8 @@ public:
         out<<")";
     }
 
+    virtual llvm::Value* codegen() override;
+
     virtual void sem() override {
         if(fc) fc->sem();
     }
@@ -1047,6 +1138,8 @@ public:
         out << "ProcStmt :" << *pc;
         out<<")";
     }
+
+    virtual llvm::Value* codegen() override;
 
     virtual void sem() override {
         if(pc) pc->sem();
@@ -1065,6 +1158,8 @@ public:
         out<<")";
     }
     
+    virtual llvm::Value* codegen() override;
+
     virtual void sem() override {
         if(l) l->sem();
         if(e) e->sem();
@@ -1091,6 +1186,8 @@ public:
         out << "Not Expr: ( "<<*expr<<" )";
     }
 
+    virtual llvm::Value* codegen() override;
+
     // virtual int eval() {
     //     return !(expr->eval());
     // }
@@ -1110,10 +1207,12 @@ class Cond : public Expr {
 public:
         
     Cond(Expr* lhs, const std::string& op, Expr* rhs)
-            : left(lhs), oper(op), right(rhs), single(nullptr) {}
+            : single(nullptr), left(lhs), oper(op), right(rhs) {}
 
-    Cond(Expr* e) : single(e) {}
-    Cond() {}
+    Cond(Expr* e) : single(e), left(nullptr), oper(""), right(nullptr) {}
+    Cond() : single(nullptr), left(nullptr), oper(""), right(nullptr) {}
+
+    virtual llvm::Value* codegen() override;
 
     void printOn(std::ostream& out) const override {
             out<<"Cond (";
@@ -1164,7 +1263,7 @@ public:
             // Απαιτούμε ίδιο αριθμητικό τύπο: είτε και τα δύο int είτε και τα δύο byte
          \
             if (((lt == TYPE_INT || lt==TYPE_REF_INT) && (rt == TYPE_INT || rt==TYPE_REF_BYTE || rt==TYPE_BOOL)) \
-             || ((lt == TYPE_BYTE || lt==TYPE_REF_BYTE) && (rt == TYPE_BYTE) || rt==TYPE_REF_BYTE || rt==TYPE_BOOL)) {
+             || ((lt == TYPE_BYTE || lt==TYPE_REF_BYTE) && ((rt == TYPE_BYTE) || rt==TYPE_REF_BYTE || rt==TYPE_BOOL))) {
                 symboltype = TYPE_BOOL;
                 return;
             } else {
@@ -1207,6 +1306,8 @@ public:
         out << ")";
     }
 
+    virtual llvm::Value* codegen() override;
+
     // virtual int eval(){
     //     return !(con->eval());
     // }
@@ -1228,6 +1329,8 @@ public:
 
     Opt_Elif_Else(StmtList *stlist) :
     condition (nullptr), stmts(stlist), elif_else(nullptr) {};
+
+    virtual llvm::Value* codegen() override;
 
     void printOn(std::ostream &out) const override {
         if (condition != nullptr && elif_else!=nullptr){
@@ -1287,6 +1390,8 @@ public:
     IfBlock(Cond *c, StmtList *stlist, Opt_Elif_Else *oee) : 
     condition(c), stmts (stlist), elif_else(oee) {};
     
+    virtual llvm::Value* codegen() override;
+
     void printOn(std::ostream& out) const override {
             out << "If condition: ";
             condition->printOn(out);

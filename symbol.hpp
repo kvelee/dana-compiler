@@ -1,12 +1,14 @@
 #ifndef __SYMBOL_HPP__
 #define __SYMBOL_HPP__
 
+#include <iostream>
 #include <vector>
 #include <map>
 #include <string>
 #include <unistd.h>
 #include <iomanip>
 #include <fstream> // should remove it later is for testing the symbol table
+#include <llvm/IR/Value.h>
 
 
 void yyerror(const char *msg);
@@ -30,6 +32,9 @@ extern std::ostream &operator<<(std::ostream &out, SymbolType t);
 struct SymbolEntry {
     SymbolType type;
     SymbolType return_value;
+    //=====
+    llvm::Value *alloca_ptr = nullptr;
+    //=====
     SymbolEntry () {}
     SymbolEntry(SymbolType t, SymbolType rv = TYPE_INVALID) {
         switch (t) {

@@ -7,6 +7,11 @@
 #include <string>
 #include "ast.hpp"
 
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Module.h>
+#include <llvm/IR/IRBuilder.h>
+#include <memory>
+
 extern int yylineno;
 extern char* yytext;
 
@@ -61,6 +66,14 @@ void print_guide_stack() {
 } 
 
 SymbolTable st;
+
+// LLVM - Program Root
+extern llvm::LLVMContext TheContext;
+extern llvm::IRBuilder<> Builder;
+extern std::unique_ptr<llvm::Module> TheModule;
+extern void initializeLLVM();
+
+FuncDefBlock *programRoot = nullptr;
 %}
 
 %define parse.error verbose
@@ -173,11 +186,12 @@ SymbolTable st;
 program:
     func_def { //std::cout<< "AST: " << *$1 <<std::endl; 
         $1->sem();
+        programRoot = $1;
     }
 ;
 
 func_def:
-    "def" header local_def_list stmt_list auto_end {$$ = new FuncDefBlock($2,$3,$4); }
+    "def" header local_def_list stmt_list auto_end { $$ = new FuncDefBlock($2,$3,$4); }
 ;
 
 func_decl:
@@ -352,11 +366,27 @@ void yyerror(const char *msg) {
     fprintf(stderr, "Error: %s at line %d, near '%s'\n", msg, yylineno, yytext);
 }
 
+
 int main() {
     init_indent_stack();
     int result = yyparse();
-    if (result == 0)
-        printf("\033[1;32mSuccess.\033[0m\n");
+
+    initializeLLVM();
+
+    if (result == 0) {
+        //printf("\033[1;32mSuccess.\033[0m\n");
+
+        if(programRoot) {
+
+            programRoot->codegen();
+            
+            if(TheModule) 
+                TheModule->print(llvm::errs(),nullptr);
+        }
+        else {
+            printf("\033[1;31m programRoot codegen failed.\033[0m\n");
+        }
+    }
     else {
         printf("\033[1;31mParsing failed.\033[0m\n");
         sleep(10);
