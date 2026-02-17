@@ -37,6 +37,8 @@ void initializeLLVM() {
     args.push_back(llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext))); // byte [] -> i8*
     llvm::FunctionType *ft = llvm::FunctionType::get(llvm::Type::getVoidTy(TheContext), args, false);
     llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "writeString", TheModule.get());
+    llvm::FunctionType *readIntFT = llvm::FunctionType::get(llvm::Type::getInt16Ty(TheContext), false);
+    llvm::Function::Create(readIntFT, llvm::Function::ExternalLinkage, "readInteger", TheModule.get());
 }
 
 // ==========================================
