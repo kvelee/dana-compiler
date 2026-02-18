@@ -6,6 +6,7 @@
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Type.h>
 #include <vector>
+#include <utility>
 
 /*
     Global LLVM Variables
@@ -17,8 +18,8 @@ std::unique_ptr<llvm::Module> TheModule;
 std::map<std::string,llvm::Value *> NamedValues;
 
 // --- Loops ---
-std::vector<llvm::BasicBlock*> LoopMergeBlocks;
-std::vector<llvm::BasicBlock*> LoopHeaderBlocks;
+std::vector<std::pair<std::string, llvm::BasicBlock*>> LoopMergeBlocks;
+std::vector<std::pair<std::string, llvm::BasicBlock*>> LoopHeaderBlocks;
 
 // Helper function for extracting the LLVM-Type
 llvm::Type *getLLVMType(SymbolType t) {
@@ -534,7 +535,8 @@ llvm::Value* FuncDefBlock::codegen() {
     if (returnType->isVoidTy()) {
         if (!Builder.GetInsertBlock()->getTerminator()) Builder.CreateRetVoid();
     } else if (!Builder.GetInsertBlock()->getTerminator()) {
-        Builder.CreateRet(llvm::ConstantInt::get(TheContext, llvm::APInt(16, 0, true)));
+        // Παράγουμε το 0 ακριβώς στο μέγεθος του returnType (i8 ή i16)
+        Builder.CreateRet(llvm::ConstantInt::get(returnType, 0));
     }
 
     // Κλείσιμο scope 
@@ -546,6 +548,7 @@ llvm::Value* FuncDefBlock::codegen() {
     llvm::verifyFunction(*TheFunction);
     return TheFunction;
 }
+
 llvm::Value* LocalDefList::codegen() {
     for (LocalDef* ld : local_def_list) {
         if (ld) ld->codegen();
@@ -614,7 +617,19 @@ llvm::Value* Opt_Fpar::codegen() { return nullptr; }
 llvm::Value* Header::codegen() { return nullptr; }
 llvm::Value* Stmt::codegen() { return nullptr; }
 llvm::Value* SkipStmt::codegen() { return nullptr; }
-llvm::Value* ExitStmt::codegen() { return nullptr; }
+
+llvm::Value* ExitStmt::codegen() {
+    // Η exit στην Dana είναι απλά ένα return χωρίς τιμή (void return)
+    Builder.CreateRetVoid();
+
+    // Επειδή φεύγουμε από τη συνάρτηση, φτιάχνουμε ένα "νεκρό" block 
+    // για εντολές που τυχόν υπάρχουν από κάτω, ώστε να μην "σκάσει" ο LLVM Builder.
+    llvm::Function *TheFunction = Builder.GetInsertBlock()->getParent();
+    llvm::BasicBlock *DeadBB = llvm::BasicBlock::Create(TheContext, "dead_after_exit", TheFunction);
+    Builder.SetInsertPoint(DeadBB);
+
+    return nullptr;
+}
 
 llvm::Value* LoopBlock::codegen() {
     
@@ -627,8 +642,8 @@ llvm::Value* LoopBlock::codegen() {
     llvm::BasicBlock *MergeBB = llvm::BasicBlock::Create(TheContext, "loop_merge", TheFunction);
 
     // Αποθήκευση στη στοίβα για τα break/continue
-    LoopHeaderBlocks.push_back(LoopBB);
-    LoopMergeBlocks.push_back(MergeBB);
+    LoopHeaderBlocks.push_back({ID, LoopBB});
+    LoopMergeBlocks.push_back({ID, MergeBB});
 
     // Μετάβαση στο header (αρχή) του loop
     Builder.CreateBr(LoopBB);
@@ -666,14 +681,25 @@ llvm::Value* BreakStmt::codegen() {
         std::cerr << "Error: Break statement not inside a loop\n";
         return nullptr;
     }
-    // Πήδα στο Merge (τέλος του loop)
-    Builder.CreateBr(LoopMergeBlocks.back());
+
+    llvm::BasicBlock *TargetBB = nullptr;
+    // Αν δεν έχει label (id), πάρε το τελευταίο (back)
+    if (id.empty()) {
+        TargetBB = LoopMergeBlocks.back().second;
+    } else {
+        // Διαφορετικά, ψάξε προς τα πίσω στη στοίβα για να βρεις το σωστό label
+        for (auto it = LoopMergeBlocks.rbegin(); it != LoopMergeBlocks.rend(); ++it) {
+            if (it->first == id) { TargetBB = it->second; break; }
+        }
+    }
+
+    if (!TargetBB) return nullptr; // Ασφάλεια σε περίπτωση λάθους
+
+    Builder.CreateBr(TargetBB);
     
-    // Φτιάχνουμε ένα νεκρό block για να μην κρασάρει ο Builder αν υπάρχουν εντολές μετά το break
     llvm::Function *TheFunction = Builder.GetInsertBlock()->getParent();
     llvm::BasicBlock *DeadBB = llvm::BasicBlock::Create(TheContext, "dead", TheFunction);
     Builder.SetInsertPoint(DeadBB);
-    
     return nullptr;
 }
 
@@ -682,17 +708,25 @@ llvm::Value* ContStmt::codegen() {
         std::cerr << "Error: Continue statement not inside a loop\n";
         return nullptr;
     }
-    // Πήδα στο Header (αρχή του loop)
-    Builder.CreateBr(LoopHeaderBlocks.back());
+
+    llvm::BasicBlock *TargetBB = nullptr;
+    if (id.empty()) {
+        TargetBB = LoopHeaderBlocks.back().second;
+    } else {
+        for (auto it = LoopHeaderBlocks.rbegin(); it != LoopHeaderBlocks.rend(); ++it) {
+            if (it->first == id) { TargetBB = it->second; break; }
+        }
+    }
+
+    if (!TargetBB) return nullptr;
+
+    Builder.CreateBr(TargetBB);
     
-    // Νεκρό block
     llvm::Function *TheFunction = Builder.GetInsertBlock()->getParent();
     llvm::BasicBlock *DeadBB = llvm::BasicBlock::Create(TheContext, "dead", TheFunction);
     Builder.SetInsertPoint(DeadBB);
-    
     return nullptr;
 }
-
 llvm::Value* FuncDecl::codegen() { return nullptr; }
 
 llvm::Value* Bool::codegen() {
