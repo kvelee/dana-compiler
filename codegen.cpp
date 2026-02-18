@@ -16,6 +16,10 @@ llvm::IRBuilder<> Builder(TheContext);
 std::unique_ptr<llvm::Module> TheModule;
 std::map<std::string,llvm::Value *> NamedValues;
 
+// --- Loops ---
+std::vector<llvm::BasicBlock*> LoopMergeBlocks;
+std::vector<llvm::BasicBlock*> LoopHeaderBlocks;
+
 // Helper function for extracting the LLVM-Type
 llvm::Type *getLLVMType(SymbolType t) {
     switch (t) {
@@ -29,8 +33,9 @@ llvm::Type *getLLVMType(SymbolType t) {
             // TYPE_PARAM defaults to i16 for numeric parameters
             return llvm::Type::getInt16Ty(TheContext);
         case TYPE_REF_INT: 
+            return llvm::PointerType::getUnqual(llvm::Type::getInt16Ty(TheContext));
         case TYPE_REF_BYTE:
-            return llvm::PointerType::getUnqual(TheContext);
+            return llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext));
         case TYPE_FUNC:    // Functions should never need alloca, but return void as fallback
             return llvm::Type::getVoidTy(TheContext);
         case TYPE_INVALID:
@@ -43,15 +48,21 @@ llvm::Type *getLLVMType(SymbolType t) {
 void initializeLLVM() {
     TheModule = std::make_unique<llvm::Module>("DanaModule", TheContext);
     
-    // Δήλωση της writeString (είναι built-in)
-    // decl writeString: s as byte []
-    // Στο LLVM: declare void @writeString(i8*)
+    // Declare writeString
     std::vector<llvm::Type*> args;
     args.push_back(llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext))); // byte [] -> i8*
     llvm::FunctionType *ft = llvm::FunctionType::get(llvm::Type::getVoidTy(TheContext), args, false);
     llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "writeString", TheModule.get());
+
+    // Declare readInteger
     llvm::FunctionType *readIntFT = llvm::FunctionType::get(llvm::Type::getInt16Ty(TheContext), false);
     llvm::Function::Create(readIntFT, llvm::Function::ExternalLinkage, "readInteger", TheModule.get());
+
+    // Declare writeInteger
+    std::vector<llvm::Type*> writeIntArgs;
+    writeIntArgs.push_back(llvm::Type::getInt16Ty(TheContext));
+    llvm::FunctionType *writeIntFT = llvm::FunctionType::get(llvm::Type::getVoidTy(TheContext), writeIntArgs, false);
+    llvm::Function::Create(writeIntFT, llvm::Function::ExternalLinkage, "writeInteger", TheModule.get());
 }
 
 // ==========================================
@@ -129,7 +140,19 @@ llvm::Value* LocalDef::codegen() {
         std::vector<Id*> ids = idlst->getIds();
         llvm::Type *llvmType = getLLVMType(tp->getsymbol());
         
-        // Ασφαλής ανάκτηση της τρέχουσας συνάρτησης
+        // 1. Υπολογισμός του μεγέθους του πίνακα (αν είναι πίνακας)
+        llvm::Value *ArraySize = nullptr;
+        std::vector<int> dims = tp->getDims();
+        if (!dims.empty()) {
+            int totalSize = 1;
+            for (int d : dims) {
+                totalSize *= d;
+            }
+            // Λέμε στο LLVM πόσα στοιχεία θέλουμε συνολικά (ως 32-bit ακέραιο)
+            ArraySize = llvm::ConstantInt::get(llvm::Type::getInt32Ty(TheContext), totalSize);
+        }
+
+        // 2. Ασφαλής ανάκτηση της τρέχουσας συνάρτησης
         llvm::BasicBlock *InsertBlock = Builder.GetInsertBlock();
         if (!InsertBlock) {
             std::cerr << "Error: No insert block in LocalDef for variable declaration\n";
@@ -145,9 +168,11 @@ llvm::Value* LocalDef::codegen() {
         llvm::IRBuilder<> TmpBuilder(&TheFunction->getEntryBlock(), 
                                      TheFunction->getEntryBlock().begin());
 
+        // 3. Δέσμευση της μνήμης για κάθε μεταβλητή
         for (Id* id : ids) {
             st.insert(id->getName(), tp->getsymbol());
-            llvm::AllocaInst *Alloca = TmpBuilder.CreateAlloca(llvmType, nullptr, id->getName());
+            
+            llvm::AllocaInst *Alloca = TmpBuilder.CreateAlloca(llvmType, ArraySize, id->getName());
             
             SymbolEntry *e = st.lookup(id->getName());
             if (e) e->alloca_ptr = Alloca;
@@ -190,83 +215,53 @@ llvm::Value* Id::codegen() {
 
 // --- Lvalue (Assignment target) ---
 llvm::Value* Lvalue::codegen() {
-    // 1. Περίπτωση String Literal: Επιστρέφουμε πάντα τον pointer (ptr) 
-    if (!str.empty()) {
-        return Builder.CreateGlobalStringPtr(str);
+    llvm::Value *Ptr = getPointer();
+    if (!Ptr) return nullptr;
+
+    // Αν είναι String Literal, επιστρέφουμε τη διεύθυνσή του απευθείας
+    if (!str.empty()) return Ptr;
+
+    SymbolEntry *entry = st.lookup(id->getName());
+    if (!entry) return nullptr;
+
+    // Ελέγχουμε αν η μεταβλητή είναι τοπικός πίνακας (έχει γίνει alloca με μέγεθος > 1)
+    bool isLocalArray = false;
+    if (llvm::AllocaInst *AI = llvm::dyn_cast<llvm::AllocaInst>(Ptr)) {
+        if (AI->isArrayAllocation()) isLocalArray = true;
     }
 
-    if (id != nullptr) {
-        SymbolEntry *entry = st.lookup(id->getName());
-        if (entry != nullptr && entry->alloca_ptr != nullptr) {
-            
-            // 2. Έξυπνο Load: Ανάλογα με τον τύπο, επιστρέφουμε Load ή Pointer
-            
-            // Αν είναι βασικός τύπος (INT/BYTE), επιστρέφουμε πάντα την Τιμή (Load)
-            if (entry->type == TYPE_INT || entry->type == TYPE_BYTE) {
-                llvm::Type *llvmType = getLLVMType(entry->type);
-                if (!llvmType) {
-                    std::cerr << "Error: Could not get LLVM type for lvalue " << id->getName() << "\n";
-                    return nullptr;
-                }
-                return Builder.CreateLoad(llvmType, entry->alloca_ptr, id->getName());
-            }
-            
-            // Αν είναι Ref ή Array, επιστρέφουμε τον Pointer (όχι Load)
-            if (entry->type == TYPE_REF_INT || entry->type == TYPE_REF_BYTE) {
-                return entry->alloca_ptr;
-            }
-            
-            // Αν είναι TYPE_PARAM, πρέπει να ελέγχουμε αν είναι αριθμητική ή δείκτης
-            if (entry->type == TYPE_PARAM) {
-                // Το return_value στο SymbolEntry είναι ο πραγματικός τύπος της παραμέτρου
-                SymbolType actualParamType = entry->return_value;
-                
-                // Αν είναι TYPE_REF_BYTE ή TYPE_REF_INT, είναι pointer - επιστροφή Load του pointer
-                if (actualParamType == TYPE_REF_BYTE || actualParamType == TYPE_REF_INT) {
-                    llvm::Type *ptrType = getLLVMType(actualParamType);
-                    if (!ptrType) ptrType = llvm::PointerType::getUnqual(TheContext);
-                    return Builder.CreateLoad(ptrType, entry->alloca_ptr, id->getName());
-                }
-                
-                // Αν είναι αριθμητική παράμετρος, κάνουμε load
-                llvm::Type *paramType = getLLVMType(actualParamType);
-                if (paramType) {
-                    return Builder.CreateLoad(paramType, entry->alloca_ptr, id->getName());
-                }
-            }
-
-            // 3. Default case: προσπάθησε Load
-            llvm::Type *llvmType = getLLVMType(entry->type);
-            if (!llvmType) {
-                std::cerr << "Error: Could not get LLVM type for lvalue " << id->getName() << "\n";
-                return nullptr;
-            }
-            return Builder.CreateLoad(llvmType, entry->alloca_ptr, id->getName());
-        }
+    // Αν ΔΕΝ ζητάμε συγκεκριμένο στοιχείο ΚΑΙ είναι πίνακας (είτε ref είτε local array)
+    if (!expr_list && (entry->type == TYPE_REF_INT || entry->type == TYPE_REF_BYTE || 
+        (entry->type == TYPE_PARAM && (entry->return_value == TYPE_REF_INT || entry->return_value == TYPE_REF_BYTE)) || 
+        isLocalArray)) {
+        return Ptr;
     }
-    return nullptr;
+    // Διαφορετικά, κάνουμε Load την τιμή (π.χ. για να διαβάσουμε το a[i] ή το x)
+    llvm::Type *ValTy = llvm::Type::getInt16Ty(TheContext); // Default int (i16)
+    if (entry->type == TYPE_BYTE || entry->type == TYPE_REF_BYTE || 
+       (entry->type == TYPE_PARAM && entry->return_value == TYPE_BYTE)) {
+        ValTy = llvm::Type::getInt8Ty(TheContext); // Byte (i8)
+    }
+
+    return Builder.CreateLoad(ValTy, Ptr, id->getName() + "_val");
 }
 // --- LvalueStmt (Assignment) ---
 llvm::Value* LvalueStmt::codegen() {
-    if (!l) {
-        std::cerr << "Error: LvalueStmt has null lvalue\n";
-        return nullptr;
-    }
+    if (!l) return nullptr;
 
-    // Μη καλείς την l->codegen() - ψάξε απευθείας το alloca_ptr
-    SymbolEntry *entry = st.lookup(l->getIdName()); 
-    if (!entry || !entry->alloca_ptr) {
-        std::cerr << "Error: Assignment to unknown variable or missing alloca_ptr\n";
+    // Βρίσκουμε τον σωστό δείκτη (είτε είναι απλή μεταβλητή είτε στοιχείο πίνακα a[i])
+    llvm::Value *LValPtr = l->getPointer(); 
+    if (!LValPtr) {
+        std::cerr << "Error: Could not get pointer for assignment\n";
         return nullptr;
     }
     
-    llvm::Value *LVal = entry->alloca_ptr;  // Το alloca pointer
-    llvm::Value *RVal = e->codegen();       // Παράγει την τιμή προς αποθήκευση (loaded value)
+    llvm::Value *RVal = e->codegen();
     if (!RVal) return nullptr;
     
-    return Builder.CreateStore(RVal, LVal);
+    // Αποθηκεύουμε την τιμή στη μνήμη
+    return Builder.CreateStore(RVal, LValPtr);
 }
-
 // --- UniOp ---
 llvm::Value* UniOp::codegen() {
     llvm::Value *val = e->codegen();
@@ -326,42 +321,45 @@ llvm::Value* ReturnStmt::codegen() {
 
 // --- IfBlock ---
 llvm::Value* IfBlock::codegen() {
-
     llvm::Value *condVal = condition->codegen();
     if (!condVal) return nullptr;
     
     llvm::BasicBlock *InsertBlock = Builder.GetInsertBlock();
-    if (!InsertBlock) {
-        std::cerr << "Error: No insert block for IfBlock\n";
-        return nullptr;
-    }
+    if (!InsertBlock) return nullptr;
     llvm::Function *TheFunction = InsertBlock->getParent();
-    if (!TheFunction) {
-        std::cerr << "Error: Cannot get function for IfBlock\n";
-        return nullptr;
-    }
     
-    // Create blocks for then, else, and merge
-    llvm::BasicBlock *ThenBB = llvm::BasicBlock::Create(TheContext, "then", TheFunction);
-    llvm::BasicBlock *MergeBB = llvm::BasicBlock::Create(TheContext, "merge", TheFunction);
-    
-    // Convert condition to i1 - use the correct bit width for comparison
+    // Μετατροπή της συνθήκης σε i1 (boolean)
     llvm::Constant *Zero = llvm::ConstantInt::get(condVal->getType(), 0);
     condVal = Builder.CreateICmpNE(condVal, Zero, "cond");
     
-    Builder.CreateCondBr(condVal, ThenBB, MergeBB);
+    // Δημιουργία των Blocks
+    llvm::BasicBlock *ThenBB = llvm::BasicBlock::Create(TheContext, "then", TheFunction);
+    llvm::BasicBlock *ElseBB = llvm::BasicBlock::Create(TheContext, "else"); // Δεν το κάνουμε insert ακόμα
+    llvm::BasicBlock *MergeBB = llvm::BasicBlock::Create(TheContext, "merge");
     
-    // Emit then block
+    bool hasElse = (elif_else != nullptr);
+    Builder.CreateCondBr(condVal, ThenBB, hasElse ? ElseBB : MergeBB);
+    
+    // 1. Then Block
     Builder.SetInsertPoint(ThenBB);
     if (stmts) stmts->codegen();
-    Builder.CreateBr(MergeBB);
+    // Αν δεν υπάρχει ήδη return/break, βάλε branch στο merge
+    if (!Builder.GetInsertBlock()->getTerminator()) Builder.CreateBr(MergeBB);
     
-    // Emit merge block
+    // 2. Else Block
+    if (hasElse) {
+        TheFunction->insert(TheFunction->end(), ElseBB);
+        Builder.SetInsertPoint(ElseBB);
+        elif_else->codegen();
+        if (!Builder.GetInsertBlock()->getTerminator()) Builder.CreateBr(MergeBB);
+    }
+    
+    // 3. Merge Block
+    TheFunction->insert(TheFunction->end(), MergeBB);
     Builder.SetInsertPoint(MergeBB);
     
     return nullptr;
 }
-
 // --- FuncDefBlock (Η καρδιά του Code Generation) ---
 llvm::Value* FuncDefBlock::codegen() {
     if (!header) {
@@ -379,22 +377,22 @@ llvm::Value* FuncDefBlock::codegen() {
     if (header->getOpt_Fpar() != nullptr) {
         paramInfo = header->getOpt_Fpar()->getParams();
         for (const auto& param : paramInfo) {
-            // Έλεγχος: αν είναι TYPE_INT ή TYPE_BYTE, χρησιμοποίησε το βασικό τύπο (όχι pointer)
-            // Μόνο αν είναι αναφορά (ref) ή πίνακας χρησιμοποίησε pointer
+            // Έλεγχος: αν είναι TYPE_INT, χρησιμοποίησε i16
             if (param.second == TYPE_INT) {
                 argTypes.push_back(llvm::Type::getInt16Ty(TheContext));
             } else if (param.second == TYPE_BYTE) {
+                // Αν είναι TYPE_BYTE, χρησιμοποίησε i8
                 argTypes.push_back(llvm::Type::getInt8Ty(TheContext));
-            } else if (param.second == TYPE_REF_INT || param.second == TYPE_REF_BYTE) {
-                // Αναφορές περνιούνται ως pointers
-                llvm::Type *baseType = (param.second == TYPE_REF_BYTE) 
-                    ? llvm::Type::getInt8Ty(TheContext)
-                    : llvm::Type::getInt16Ty(TheContext);
-                argTypes.push_back(llvm::PointerType::getUnqual(baseType));
+            } else if (param.second == TYPE_REF_INT) {
+                // Reference to int: pass as i16*
+                argTypes.push_back(llvm::PointerType::getUnqual(llvm::Type::getInt16Ty(TheContext)));
+            } else if (param.second == TYPE_REF_BYTE) {
+                // Reference to byte: pass as i8*
+                argTypes.push_back(llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext)));
             } else {
                 llvm::Type *paramType = getLLVMType(param.second);
                 if (!paramType) {
-                    std::cerr << "Error: Invalid parameter type\\n";
+                    std::cerr << "Error: Invalid parameter type\n";
                     return nullptr;
                 }
                 argTypes.push_back(paramType);
@@ -430,11 +428,16 @@ llvm::Value* FuncDefBlock::codegen() {
             st.insert(pName, TYPE_PARAM, pType);
             SymbolEntry *e = st.lookup(pName);
 
-            // Για όλες τις παραμέτρους δημιουργούμε alloca και αποθηκεύουμε την τιμή τους
-            llvm::AllocaInst *Alloca = TmpBuilder.CreateAlloca(arg.getType(), nullptr, pName);
-            // Αποθήκευση του argument στο alloca
-            TmpBuilder.CreateStore(&arg, Alloca);
-            if (e) e->alloca_ptr = Alloca;
+            // For references/arrays (byte[], ref int), store the pointer directly without intermediate alloca
+            if (pType == TYPE_REF_BYTE || pType == TYPE_REF_INT) {
+                // For references, the arg IS the pointer we want to use
+                if (e) e->alloca_ptr = &arg;
+            } else {
+                // For numeric parameters, create alloca and store the value
+                llvm::AllocaInst *Alloca = TmpBuilder.CreateAlloca(arg.getType(), nullptr, pName);
+                TmpBuilder.CreateStore(&arg, Alloca);
+                if (e) e->alloca_ptr = Alloca;
+            }
         }
         argIndex++;
     }
@@ -499,9 +502,21 @@ llvm::Value* Proc_Call::codegen() {
     // 2. Prepare the arguments (Args)
     std::vector<llvm::Value *> ArgsV;
     if (list) {
+        unsigned i = 0;
         for (Expr *arg : list->getExprs()) { 
-            ArgsV.push_back(arg->codegen());
+            llvm::Value *argVal = arg->codegen();
+            
+            // ΕΞΥΠΝΟ ΚΟΛΠΟ: Αν η συνάρτηση ζητάει pointer (π.χ. ref int ή byte[]),
+            // αλλά εμείς έχουμε φορτωμένη τιμή (i16/i8), δώσε της τη διεύθυνση!
+            if (i < CalleeF->arg_size() && CalleeF->getArg(i)->getType()->isPointerTy() && !argVal->getType()->isPointerTy()) {
+                if (Lvalue *lval = dynamic_cast<Lvalue*>(arg)) {
+                    argVal = lval->getPointer(); // Περάσαμε τη διεύθυνση (pass-by-reference)!
+                }
+            }
+            
+            ArgsV.push_back(argVal);
             if (!ArgsV.back()) return nullptr;
+            i++;
         }
     }
 
@@ -525,26 +540,84 @@ llvm::Value* Header::codegen() { return nullptr; }
 llvm::Value* Stmt::codegen() { return nullptr; }
 llvm::Value* SkipStmt::codegen() { return nullptr; }
 llvm::Value* ExitStmt::codegen() { return nullptr; }
+
 llvm::Value* LoopBlock::codegen() {
-    // Open scope for the loop
-    st.openScope();
     
-    // Mark this scope as inside a loop
+    llvm::Function *TheFunction = Builder.GetInsertBlock()->getParent();
+    if (!TheFunction) return nullptr;
+
+    // Δημιουργία των Basic Blocks
+    llvm::BasicBlock *LoopBB = llvm::BasicBlock::Create(TheContext, "loop", TheFunction);
+    llvm::BasicBlock *BodyBB = llvm::BasicBlock::Create(TheContext, "body", TheFunction);
+    llvm::BasicBlock *MergeBB = llvm::BasicBlock::Create(TheContext, "loop_merge", TheFunction);
+
+    // Αποθήκευση στη στοίβα για τα break/continue
+    LoopHeaderBlocks.push_back(LoopBB);
+    LoopMergeBlocks.push_back(MergeBB);
+
+    // Μετάβαση στο header (αρχή) του loop
+    Builder.CreateBr(LoopBB);
+    Builder.SetInsertPoint(LoopBB);
+
+    // Πάντα μπαίνουμε στο body (τα άπειρα loops ελέγχονται εσωτερικά)
+    Builder.CreateBr(BodyBB);
+    Builder.SetInsertPoint(BodyBB);
+
+    // Open scope for the loop variables
+    st.openScope();
     st.insert("__loop__", LOOP);
     
     // Generate code for the loop body
-    llvm::Value *result = nullptr;
-    if (loop_stmt_list) {
-        result = loop_stmt_list->codegen();
-    }
+    if (loop_stmt_list) loop_stmt_list->codegen();
     
     // Close the loop scope
     st.closeScope();
-    
-    return result;
+
+    // Επιστροφή στην αρχή του loop
+    Builder.CreateBr(LoopBB);
+
+    // Συνεχίζουμε μετά το loop
+    Builder.SetInsertPoint(MergeBB);
+
+    // Αφαίρεση από τη στοίβα
+    LoopHeaderBlocks.pop_back();
+    LoopMergeBlocks.pop_back();
+
+    return nullptr;
 }
-llvm::Value* BreakStmt::codegen() { return nullptr; }
-llvm::Value* ContStmt::codegen() { return nullptr; }
+
+llvm::Value* BreakStmt::codegen() {
+    if (LoopMergeBlocks.empty()) {
+        std::cerr << "Error: Break statement not inside a loop\n";
+        return nullptr;
+    }
+    // Πήδα στο Merge (τέλος του loop)
+    Builder.CreateBr(LoopMergeBlocks.back());
+    
+    // Φτιάχνουμε ένα νεκρό block για να μην κρασάρει ο Builder αν υπάρχουν εντολές μετά το break
+    llvm::Function *TheFunction = Builder.GetInsertBlock()->getParent();
+    llvm::BasicBlock *DeadBB = llvm::BasicBlock::Create(TheContext, "dead", TheFunction);
+    Builder.SetInsertPoint(DeadBB);
+    
+    return nullptr;
+}
+
+llvm::Value* ContStmt::codegen() {
+    if (LoopHeaderBlocks.empty()) {
+        std::cerr << "Error: Continue statement not inside a loop\n";
+        return nullptr;
+    }
+    // Πήδα στο Header (αρχή του loop)
+    Builder.CreateBr(LoopHeaderBlocks.back());
+    
+    // Νεκρό block
+    llvm::Function *TheFunction = Builder.GetInsertBlock()->getParent();
+    llvm::BasicBlock *DeadBB = llvm::BasicBlock::Create(TheContext, "dead", TheFunction);
+    Builder.SetInsertPoint(DeadBB);
+    
+    return nullptr;
+}
+
 llvm::Value* FuncDecl::codegen() { return nullptr; }
 
 llvm::Value* Bool::codegen() { return nullptr; }
@@ -605,7 +678,48 @@ llvm::Value* Cond::codegen() {
     }
 }
 llvm::Value* NotCond::codegen() { return nullptr; }
-llvm::Value* Opt_Elif_Else::codegen() { return nullptr; }
 
+llvm::Value* Opt_Elif_Else::codegen() {
+    // Υποστήριξη για το περιεχόμενο του else block
+    if (stmts) {
+        return stmts->codegen();
+    }
+    if (elif_else) {
+        return elif_else->codegen();
+    }
+    return nullptr;
+}
+// --- Lvalue GEP ---
+llvm::Value* Lvalue::getPointer() {
+    if (!str.empty()) return Builder.CreateGlobalStringPtr(str);
+    if (!id) return nullptr;
 
+    SymbolEntry *entry = st.lookup(id->getName());
+    if (!entry || !entry->alloca_ptr) return nullptr;
 
+    llvm::Value *Ptr = entry->alloca_ptr;
+    llvm::Type *BaseTy = getLLVMType(entry->type);
+
+    // Αν είναι δείκτης (π.χ. byte[] σαν παράμετρος), κάνουμε Load τη διεύθυνση
+    if (entry->type == TYPE_REF_BYTE || entry->type == TYPE_REF_INT || 
+       (entry->type == TYPE_PARAM && BaseTy->isPointerTy())) {
+        Ptr = Builder.CreateLoad(BaseTy, Ptr, id->getName() + "_base");
+        
+        // Βρίσκουμε τον τύπο του στοιχείου (i8 ή i16)
+        BaseTy = (entry->type == TYPE_REF_BYTE || (entry->type == TYPE_PARAM && entry->return_value == TYPE_BYTE)) 
+                 ? llvm::Type::getInt8Ty(TheContext) 
+                 : llvm::Type::getInt16Ty(TheContext);
+    }
+
+    // Διαχείριση των θέσεων [i] (Array Indexing)
+    if (expr_list) {
+        for (Expr *idx_expr : expr_list->getExprs()) {
+            llvm::Value *IdxVal = idx_expr->codegen();
+            if (!IdxVal) continue;
+            // Το LLVM θέλει 64-bit ακεραίους για τους δείκτες (indexes)
+            IdxVal = Builder.CreateSExt(IdxVal, llvm::Type::getInt64Ty(TheContext), "idx_ext");
+            Ptr = Builder.CreateInBoundsGEP(BaseTy, Ptr, {IdxVal}, "arrayidx");
+        }
+    }
+    return Ptr;
+}

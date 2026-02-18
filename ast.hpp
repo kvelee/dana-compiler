@@ -58,6 +58,8 @@ public:
         dim.push_back(n);
     }
 
+    std::vector<int> getDims() const { return dim; }
+
     void printOn(std::ostream &out) const override {
         out<< "Type: " << dt;
         if(!dim.empty()) {
@@ -274,7 +276,8 @@ public:
 
     Opt_Fpar(Id_List *idlst, Type *dt, Opt_Fpar *opt = nullptr) : 
     id_list(*idlst), data_type(dt->getsymbol()) {
-        array_type =nullptr;
+        // Check if dt is actually an ArrayType and set array_type accordingly
+        array_type = dynamic_cast<ArrayType*>(dt);
         //if(ref == REF_byte || ref == REF_int) yyerror("Invalid ref type int opt_fpar!\n");
         if(opt!=nullptr) next = new Opt_Fpar(*opt);
         else next = nullptr;
@@ -331,6 +334,11 @@ public:
         std::vector<Id *> ids = const_cast<Id_List&>(id_list).getIds();
         for (Id *id : ids) {
             SymbolType type = (array_type != nullptr) ? array_type->getsymbol() : data_type;
+            // Convert array types to reference types for function parameters
+            if (array_type != nullptr) {
+                if (type == TYPE_BYTE) type = TYPE_REF_BYTE;
+                else if (type == TYPE_INT) type = TYPE_REF_INT;
+            }
             result.push_back({id->getName(), type});
         }
         if (next != nullptr) {
@@ -823,6 +831,7 @@ public:
 
     std::string getIdName() { return id ? id->getName() : ""; }
 
+    llvm::Value* getPointer();
 private:
     Id *id;
     std::string str;
