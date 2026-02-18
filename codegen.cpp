@@ -19,11 +19,24 @@ std::map<std::string,llvm::Value *> NamedValues;
 // Helper function for extracting the LLVM-Type
 llvm::Type *getLLVMType(SymbolType t) {
     switch (t) {
-        case TYPE_INT: return llvm::Type::getInt16Ty(TheContext);
-        case TYPE_BYTE: return llvm::Type::getInt8Ty(TheContext);
-        case TYPE_BOOL: return llvm::Type::getInt8Ty(TheContext); // 1 bit, αλλά συνήθως αποθηκεύεται ως byte (i8)
-        case TYPE_FUNC: return llvm::Type::getVoidTy(TheContext); // Void functions
-        default: return llvm::Type::getVoidTy(TheContext);
+        case TYPE_INT: 
+            return llvm::Type::getInt16Ty(TheContext);
+        case TYPE_BYTE: 
+            return llvm::Type::getInt8Ty(TheContext);
+        case TYPE_BOOL: 
+            return llvm::Type::getInt8Ty(TheContext);
+        case TYPE_PARAM:
+            // TYPE_PARAM defaults to i16 for numeric parameters
+            return llvm::Type::getInt16Ty(TheContext);
+        case TYPE_REF_INT: 
+        case TYPE_REF_BYTE:
+            return llvm::PointerType::getUnqual(TheContext);
+        case TYPE_FUNC:    // Functions should never need alloca, but return void as fallback
+            return llvm::Type::getVoidTy(TheContext);
+        case TYPE_INVALID:
+        default: 
+            std::cerr << "Warning: getLLVMType called with invalid/unknown type. Returning Int16Ty as fallback." << std::endl;
+            return llvm::Type::getInt16Ty(TheContext);
     }
 }
 
@@ -69,6 +82,14 @@ llvm::Value* StmtList::codegen() {
 
 // --- Func_Call (Κλήση συνάρτησης) ---
 llvm::Value* Func_Call::codegen() {
+    if (!id) {
+        std::cerr << "Error: Func_Call has null id\n";
+        return nullptr;
+    }
+    if (!TheModule) {
+        std::cerr << "Error: TheModule is not initialized\n";
+        return nullptr;
+    }
     // 1. Βρες τη συνάρτηση
     llvm::Function *CalleeF = TheModule->getFunction(id->getName());
     if (!CalleeF) {
@@ -105,29 +126,33 @@ llvm::Value* LocalDef::codegen() {
         return func_decl->codegen();
     } 
     else if (idlst) { 
-        // var x, y is int
         std::vector<Id*> ids = idlst->getIds();
-        llvm::Type *llvmType = getLLVMType(tp->getsymbol()); // Π.χ. i16
+        llvm::Type *llvmType = getLLVMType(tp->getsymbol());
         
-        // H Alloca γίνεται ΠΑΝΤΑ στην αρχή της συνάρτησης (Entry Block)
-        llvm::Function *TheFunction = Builder.GetInsertBlock()->getParent();
-        llvm::IRBuilder<> TmpBuilder(&TheFunction->getEntryBlock(), TheFunction->getEntryBlock().begin());
+        // Ασφαλής ανάκτηση της τρέχουσας συνάρτησης
+        llvm::BasicBlock *InsertBlock = Builder.GetInsertBlock();
+        if (!InsertBlock) {
+            std::cerr << "Error: No insert block in LocalDef for variable declaration\n";
+            return nullptr;
+        }
+        llvm::Function *TheFunction = InsertBlock->getParent();
+        if (!TheFunction) {
+            std::cerr << "Error: Cannot get parent function in LocalDef\n";
+            return nullptr;
+        }
+
+        // Δημιουργία TmpBuilder στην αρχή του entry block
+        llvm::IRBuilder<> TmpBuilder(&TheFunction->getEntryBlock(), 
+                                     TheFunction->getEntryBlock().begin());
 
         for (Id* id : ids) {
-            // 1. Insert variable into symbol table
             st.insert(id->getName(), tp->getsymbol());
-            
-            // 2. Create Alloca
             llvm::AllocaInst *Alloca = TmpBuilder.CreateAlloca(llvmType, nullptr, id->getName());
             
-            // 3. Ενημέρωση Symbol Table!
             SymbolEntry *e = st.lookup(id->getName());
-            if (e) {
-                e->alloca_ptr = Alloca; // Αποθηκεύουμε τον pointer!
-            }
+            if (e) e->alloca_ptr = Alloca;
         }
-    }
-    return nullptr; // Declarations don't return a value
+    }return nullptr; // Declarations don't return a value
 }
 
 // --- ExprList ---
@@ -141,49 +166,105 @@ llvm::Value* ExprList::codegen() {
 
 // --- Id (Variable reference) ---
 llvm::Value* Id::codegen() {
-    SymbolEntry *e = st.lookup(id);
+    SymbolEntry *e = st.lookup(id); // Αναζήτηση στον πίνακα συμβόλων 
     if (!e) {
         std::cerr << "Unknown variable: " << id << "\n";
         return nullptr;
     }
     
     if (e->alloca_ptr) {
-        // Load from allocated memory
-        return Builder.CreateLoad(getLLVMType(e->return_value), e->alloca_ptr, id);
+        // Παίρνουμε τον σωστό τύπο LLVM από τον τύπο που αποθηκεύσαμε στο Symbol Table 
+        llvm::Type *llvmType = getLLVMType(e->type);
+        
+        // Εκτελούμε Load χρησιμοποιώντας ρητά τον τύπο (απαραίτητο για LLVM 18) 
+        if (!llvmType) {
+            std::cerr << "Error: Could not get LLVM type for variable " << id << "\n";
+            return nullptr;
+        }
+        return Builder.CreateLoad(llvmType, e->alloca_ptr, id.c_str());
     }
+    
+    std::cerr << "Variable " << id << " has no allocated memory.\n";
     return nullptr;
 }
 
 // --- Lvalue (Assignment target) ---
 llvm::Value* Lvalue::codegen() {
-    // 1. Handle string literal
+    // 1. Περίπτωση String Literal: Επιστρέφουμε πάντα τον pointer (ptr) 
     if (!str.empty()) {
         return Builder.CreateGlobalStringPtr(str);
     }
 
-    // 2. Handle variable (ID) - return the pointer for assignment
     if (id != nullptr) {
         SymbolEntry *entry = st.lookup(id->getName());
         if (entry != nullptr && entry->alloca_ptr != nullptr) {
-            // Return the alloca pointer for storing value
-            return entry->alloca_ptr;
+            
+            // 2. Έξυπνο Load: Ανάλογα με τον τύπο, επιστρέφουμε Load ή Pointer
+            
+            // Αν είναι βασικός τύπος (INT/BYTE), επιστρέφουμε πάντα την Τιμή (Load)
+            if (entry->type == TYPE_INT || entry->type == TYPE_BYTE) {
+                llvm::Type *llvmType = getLLVMType(entry->type);
+                if (!llvmType) {
+                    std::cerr << "Error: Could not get LLVM type for lvalue " << id->getName() << "\n";
+                    return nullptr;
+                }
+                return Builder.CreateLoad(llvmType, entry->alloca_ptr, id->getName());
+            }
+            
+            // Αν είναι Ref ή Array, επιστρέφουμε τον Pointer (όχι Load)
+            if (entry->type == TYPE_REF_INT || entry->type == TYPE_REF_BYTE) {
+                return entry->alloca_ptr;
+            }
+            
+            // Αν είναι TYPE_PARAM, πρέπει να ελέγχουμε αν είναι αριθμητική ή δείκτης
+            if (entry->type == TYPE_PARAM) {
+                // Το return_value στο SymbolEntry είναι ο πραγματικός τύπος της παραμέτρου
+                SymbolType actualParamType = entry->return_value;
+                
+                // Αν είναι TYPE_REF_BYTE ή TYPE_REF_INT, είναι pointer - επιστροφή Load του pointer
+                if (actualParamType == TYPE_REF_BYTE || actualParamType == TYPE_REF_INT) {
+                    llvm::Type *ptrType = getLLVMType(actualParamType);
+                    if (!ptrType) ptrType = llvm::PointerType::getUnqual(TheContext);
+                    return Builder.CreateLoad(ptrType, entry->alloca_ptr, id->getName());
+                }
+                
+                // Αν είναι αριθμητική παράμετρος, κάνουμε load
+                llvm::Type *paramType = getLLVMType(actualParamType);
+                if (paramType) {
+                    return Builder.CreateLoad(paramType, entry->alloca_ptr, id->getName());
+                }
+            }
+
+            // 3. Default case: προσπάθησε Load
+            llvm::Type *llvmType = getLLVMType(entry->type);
+            if (!llvmType) {
+                std::cerr << "Error: Could not get LLVM type for lvalue " << id->getName() << "\n";
+                return nullptr;
+            }
+            return Builder.CreateLoad(llvmType, entry->alloca_ptr, id->getName());
         }
     }
     return nullptr;
 }
 // --- LvalueStmt (Assignment) ---
 llvm::Value* LvalueStmt::codegen() {
-    // Get the lvalue (should be a pointer to allocated memory)
-    llvm::Value *LVal = l->codegen();
-    if (!LVal) return nullptr;
+    if (!l) {
+        std::cerr << "Error: LvalueStmt has null lvalue\n";
+        return nullptr;
+    }
+
+    // Μη καλείς την l->codegen() - ψάξε απευθείας το alloca_ptr
+    SymbolEntry *entry = st.lookup(l->getIdName()); 
+    if (!entry || !entry->alloca_ptr) {
+        std::cerr << "Error: Assignment to unknown variable or missing alloca_ptr\n";
+        return nullptr;
+    }
     
-    // Get the rvalue
-    llvm::Value *RVal = e->codegen();
+    llvm::Value *LVal = entry->alloca_ptr;  // Το alloca pointer
+    llvm::Value *RVal = e->codegen();       // Παράγει την τιμή προς αποθήκευση (loaded value)
     if (!RVal) return nullptr;
     
-    // Store the value
-    Builder.CreateStore(RVal, LVal);
-    return RVal;
+    return Builder.CreateStore(RVal, LVal);
 }
 
 // --- UniOp ---
@@ -208,6 +289,16 @@ llvm::Value* BinOp::codegen() {
     llvm::Value *rhs = right->codegen();
     
     if (!lhs || !rhs) return nullptr;
+    
+    // Ensure operands are not pointers (must be loaded values)
+    if (lhs->getType()->isPointerTy()) {
+        std::cerr << "Error: BinOp left operand is a pointer, should be a loaded value\n";
+        return nullptr;
+    }
+    if (rhs->getType()->isPointerTy()) {
+        std::cerr << "Error: BinOp right operand is a pointer, should be a loaded value\n";
+        return nullptr;
+    }
     
     switch (op) {
         case '+':
@@ -239,7 +330,16 @@ llvm::Value* IfBlock::codegen() {
     llvm::Value *condVal = condition->codegen();
     if (!condVal) return nullptr;
     
-    llvm::Function *TheFunction = Builder.GetInsertBlock()->getParent();
+    llvm::BasicBlock *InsertBlock = Builder.GetInsertBlock();
+    if (!InsertBlock) {
+        std::cerr << "Error: No insert block for IfBlock\n";
+        return nullptr;
+    }
+    llvm::Function *TheFunction = InsertBlock->getParent();
+    if (!TheFunction) {
+        std::cerr << "Error: Cannot get function for IfBlock\n";
+        return nullptr;
+    }
     
     // Create blocks for then, else, and merge
     llvm::BasicBlock *ThenBB = llvm::BasicBlock::Create(TheContext, "then", TheFunction);
@@ -264,83 +364,110 @@ llvm::Value* IfBlock::codegen() {
 
 // --- FuncDefBlock (Η καρδιά του Code Generation) ---
 llvm::Value* FuncDefBlock::codegen() {
-    // 0. Open a new scope for the function
-    st.openScope();
+    if (!header) {
+        std::cerr << "Error: FuncDefBlock has null header\\n";
+        return nullptr;
+    }
     
-    // 1. Build argument types from Opt_Fpar
+    // 1. Άνοιγμα νέου scope για τη συνάρτηση (Rescoping) 
+    st.openScope();
+
+    // 2. Προετοιμασία τύπων παραμέτρων 
     std::vector<llvm::Type*> argTypes;
     std::vector<std::pair<std::string, SymbolType>> paramInfo;
     
     if (header->getOpt_Fpar() != nullptr) {
         paramInfo = header->getOpt_Fpar()->getParams();
         for (const auto& param : paramInfo) {
-            argTypes.push_back(getLLVMType(param.second));
+            // Έλεγχος: αν είναι TYPE_INT ή TYPE_BYTE, χρησιμοποίησε το βασικό τύπο (όχι pointer)
+            // Μόνο αν είναι αναφορά (ref) ή πίνακας χρησιμοποίησε pointer
+            if (param.second == TYPE_INT) {
+                argTypes.push_back(llvm::Type::getInt16Ty(TheContext));
+            } else if (param.second == TYPE_BYTE) {
+                argTypes.push_back(llvm::Type::getInt8Ty(TheContext));
+            } else if (param.second == TYPE_REF_INT || param.second == TYPE_REF_BYTE) {
+                // Αναφορές περνιούνται ως pointers
+                llvm::Type *baseType = (param.second == TYPE_REF_BYTE) 
+                    ? llvm::Type::getInt8Ty(TheContext)
+                    : llvm::Type::getInt16Ty(TheContext);
+                argTypes.push_back(llvm::PointerType::getUnqual(baseType));
+            } else {
+                llvm::Type *paramType = getLLVMType(param.second);
+                if (!paramType) {
+                    std::cerr << "Error: Invalid parameter type\\n";
+                    return nullptr;
+                }
+                argTypes.push_back(paramType);
+            }
         }
     }
 
-    // 2. Create function type
+    // 3. Δημιουργία τύπου συνάρτησης και της ίδιας της συνάρτησης 
     llvm::Type *returnType = (header->gettype()) ? getLLVMType(header->gettype()->getsymbol()) : llvm::Type::getVoidTy(TheContext);
+    if (!returnType) {
+        std::cerr << "Error: Could not get return type for function " << header->getName() << "\n";
+        return nullptr;
+    }
     llvm::FunctionType *FT = llvm::FunctionType::get(returnType, argTypes, false);
-
-    // 3. Create the function in the module
     llvm::Function *TheFunction = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, header->getName(), TheModule.get());
 
-    // 4. Create entry block
+    // 4. Αποθήκευση του τρέχοντος Insert Point (για nested functions) 
+    llvm::BasicBlock *prevBB = Builder.GetInsertBlock();
+
+    // 5. Δημιουργία Entry Block 
     llvm::BasicBlock *BB = llvm::BasicBlock::Create(TheContext, "entry", TheFunction);
     Builder.SetInsertPoint(BB);
 
-    // 5. Handle function parameters: create alloca for each param and store the argument
+    // 6. Δέσμευση μνήμης (alloca) για παραμέτρους στην αρχή του entry block 
     llvm::IRBuilder<> TmpBuilder(&TheFunction->getEntryBlock(), TheFunction->getEntryBlock().begin());
     unsigned argIndex = 0;
     for (auto& arg : TheFunction->args()) {
         if (argIndex < paramInfo.size()) {
-            // Insert parameter into symbol table
-            st.insert(paramInfo[argIndex].first, paramInfo[argIndex].second);
-            
-            llvm::Type *paramType = getLLVMType(paramInfo[argIndex].second);
-            llvm::AllocaInst *Alloca = TmpBuilder.CreateAlloca(paramType, nullptr, paramInfo[argIndex].first);
+            std::string pName = paramInfo[argIndex].first;
+            SymbolType pType = paramInfo[argIndex].second;
+
+            // Επανεισαγωγή παραμέτρου στον Symbol Table 
+            st.insert(pName, TYPE_PARAM, pType);
+            SymbolEntry *e = st.lookup(pName);
+
+            // Για όλες τις παραμέτρους δημιουργούμε alloca και αποθηκεύουμε την τιμή τους
+            llvm::AllocaInst *Alloca = TmpBuilder.CreateAlloca(arg.getType(), nullptr, pName);
+            // Αποθήκευση του argument στο alloca
             TmpBuilder.CreateStore(&arg, Alloca);
-            
-            // Update symbol table with alloca pointer
-            SymbolEntry *e = st.lookup(paramInfo[argIndex].first);
-            if (e) {
-                e->alloca_ptr = Alloca;
-            }
+            if (e) e->alloca_ptr = Alloca;
         }
         argIndex++;
     }
 
-    // Set insertion point back to end of entry block
-    Builder.SetInsertPoint(BB);
+    // Save the current insert point (entry block for this function)
+    llvm::BasicBlock *SavedBB = Builder.GetInsertBlock();
 
-    // 6. Generate code for local definitions
-    if (localDefList) {
-        localDefList->codegen();
-    }
+    // 7. Παραγωγή κώδικα για τοπικούς ορισμούς (εδώ μπαίνουν οι nested functions) 
+    if (localDefList) localDefList->codegen();
 
-    // 7. Generate code for statements
-    if (stmt_list) {
-        stmt_list->codegen();
-    }
+    // ΚΡΙΣΙΜΟ: Επαναφορά του Builder στη δική μας συνάρτηση μετά τους τοπικούς ορισμούς 
+    // Χωρίς αυτό, οι φωλιασμένες συναρτήσεις (π.χ. move) θα μπερδέψουν το insert point
+    Builder.SetInsertPoint(SavedBB);
 
-    // 8. Final return statement
+    // 8. Παραγωγή κώδικα για τις εντολές της συνάρτησης 
+    if (stmt_list) stmt_list->codegen();
+
+    // 9. Διαχείριση Return 
     if (returnType->isVoidTy()) {
-        Builder.CreateRetVoid();
-    } else {
-        if (!Builder.GetInsertBlock()->getTerminator()) {
-            Builder.CreateRet(llvm::ConstantInt::get(TheContext, llvm::APInt(16, 0, true)));
-        }
+        if (!Builder.GetInsertBlock()->getTerminator()) Builder.CreateRetVoid();
+    } else if (!Builder.GetInsertBlock()->getTerminator()) {
+        Builder.CreateRet(llvm::ConstantInt::get(TheContext, llvm::APInt(16, 0, true)));
     }
 
-    // Verify function
-    llvm::verifyFunction(*TheFunction);
-
-    // Close the function scope
+    // Κλείσιμο scope 
     st.closeScope();
 
+    // Επαναφορά στον προηγούμενο Builder για να συνεχίσει η εξωτερική συνάρτηση 
+    if (prevBB) Builder.SetInsertPoint(prevBB);
+
+    llvm::verifyFunction(*TheFunction);
     return TheFunction;
 }
-
 llvm::Value* LocalDefList::codegen() {
     for (LocalDef* ld : local_def_list) {
         if (ld) ld->codegen();
@@ -354,6 +481,14 @@ llvm::Value* ProcStmt::codegen() {
 }
 
 llvm::Value* Proc_Call::codegen() {
+    if (!id) {
+        std::cerr << "Error: Proc_Call has null id\n";
+        return nullptr;
+    }
+    if (!TheModule) {
+        std::cerr << "Error: TheModule is not initialized\n";
+        return nullptr;
+    }
     // 1. Find the function
     llvm::Function *CalleeF = TheModule->getFunction(id->getName());
     if (!CalleeF) {
@@ -419,47 +554,54 @@ llvm::Value* BoolBinOp::codegen() { return nullptr; }
 llvm::Value* FuncStmt::codegen() { return nullptr; }
 
 llvm::Value* NotExpr::codegen() { return nullptr; }
+
 llvm::Value* Cond::codegen() {
-    // Handle single condition (just a boolean expression)
-    if (single != nullptr) {
-        return single->codegen();
+    // Διαχείριση απλής έκφρασης ως συνθήκη 
+    if (single != nullptr) { 
+        return single->codegen(); 
     }
 
-    // Handle binary comparison
-    llvm::Value *lhsVal = left->codegen();
-    llvm::Value *rhsVal = right->codegen();
+    // Παραγωγή κώδικα για τα δύο σκέλη της σύγκρισης 
+    llvm::Value *lhsVal = left->codegen(); 
+    llvm::Value *rhsVal = right->codegen(); 
     
-    if (!lhsVal || !rhsVal) return nullptr;
+    if (!lhsVal || !rhsVal) return nullptr; 
 
-    // Ensure both operands have the same type before comparison
-    // If types differ, promote to the larger type
-    if (lhsVal->getType() != rhsVal->getType()) {
-        if (lhsVal->getType()->getPrimitiveSizeInBits() < rhsVal->getType()->getPrimitiveSizeInBits()) {
-            lhsVal = Builder.CreateSExt(lhsVal, rhsVal->getType(), "sext_lhs");
-        } else {
-            rhsVal = Builder.CreateSExt(rhsVal, lhsVal->getType(), "sext_rhs");
+    // Έλεγχος ώστε να μην συγκρίνουμε pointers (πρέπει να είναι loaded values) 
+    if (lhsVal->getType()->isPointerTy() || rhsVal->getType()->isPointerTy()) { 
+        std::cerr << "Error: Cond operands must be loaded values, not pointers.\n"; 
+        return nullptr; 
+    }
+
+    // Εξίσωση τύπων (Promotion) αν διαφέρουν (π.χ. i8 με i16) 
+    if (lhsVal->getType() != rhsVal->getType()) { 
+        if (lhsVal->getType()->getPrimitiveSizeInBits() < rhsVal->getType()->getPrimitiveSizeInBits()) { 
+            lhsVal = Builder.CreateSExt(lhsVal, rhsVal->getType(), "sext_lhs"); 
+        } else { 
+            rhsVal = Builder.CreateSExt(rhsVal, lhsVal->getType(), "sext_rhs"); 
         }
     }
 
-    if (oper == ">") {
-        return Builder.CreateICmpSGT(lhsVal, rhsVal, "cmp_gt");
-    } else if (oper == "<") {
-        return Builder.CreateICmpSLT(lhsVal, rhsVal, "cmp_lt");
-    } else if (oper == ">=") {
-        return Builder.CreateICmpSGE(lhsVal, rhsVal, "cmp_ge");
-    } else if (oper == "<=") {
-        return Builder.CreateICmpSLE(lhsVal, rhsVal, "cmp_le");
-    } else if (oper == "=" || oper == "==") {
-        return Builder.CreateICmpEQ(lhsVal, rhsVal, "cmp_eq");
-    } else if (oper == "<>" || oper == "!=") {
-        return Builder.CreateICmpNE(lhsVal, rhsVal, "cmp_ne");
-    } else if (oper == "and") {
-        return Builder.CreateAnd(lhsVal, rhsVal, "and");
-    } else if (oper == "or") {
-        return Builder.CreateOr(lhsVal, rhsVal, "or");
-    } else {
-        std::cerr << "Unknown condition operator: " << oper << "\n";
-        return nullptr;
+    // Δημιουργία της εντολής σύγκρισης βάσει του τελεστή 
+    if (oper == ">") { 
+        return Builder.CreateICmpSGT(lhsVal, rhsVal, "cmp_gt"); 
+    } else if (oper == "<") { 
+        return Builder.CreateICmpSLT(lhsVal, rhsVal, "cmp_lt"); 
+    } else if (oper == ">=") { 
+        return Builder.CreateICmpSGE(lhsVal, rhsVal, "cmp_ge"); 
+    } else if (oper == "<=") { 
+        return Builder.CreateICmpSLE(lhsVal, rhsVal, "cmp_le"); 
+    } else if (oper == "=") { 
+        return Builder.CreateICmpEQ(lhsVal, rhsVal, "cmp_eq"); 
+    } else if (oper == "<>") { 
+        return Builder.CreateICmpNE(lhsVal, rhsVal, "cmp_ne"); 
+    } else if (oper == "and") { 
+        return Builder.CreateAnd(lhsVal, rhsVal, "and_res"); 
+    } else if (oper == "or") { 
+        return Builder.CreateOr(lhsVal, rhsVal, "or_res"); 
+    } else { 
+        std::cerr << "Unknown condition operator: " << oper << "\n"; 
+        return nullptr; 
     }
 }
 llvm::Value* NotCond::codegen() { return nullptr; }

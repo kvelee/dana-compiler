@@ -369,9 +369,9 @@ void yyerror(const char *msg) {
 
 int main() {
     init_indent_stack();
-    int result = yyparse();
-
     initializeLLVM();
+    
+    int result = yyparse();
 
     if (result == 0) {
         //printf("\033[1;32mSuccess.\033[0m\n");

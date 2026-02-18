@@ -821,6 +821,7 @@ public:
 
     }
 
+    std::string getIdName() { return id ? id->getName() : ""; }
 
 private:
     Id *id;
