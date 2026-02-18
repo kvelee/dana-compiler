@@ -48,23 +48,97 @@ llvm::Type *getLLVMType(SymbolType t) {
 void initializeLLVM() {
     TheModule = std::make_unique<llvm::Module>("DanaModule", TheContext);
     
-    // Declare writeString
-    std::vector<llvm::Type*> args;
-    args.push_back(llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext))); // byte [] -> i8*
-    llvm::FunctionType *ft = llvm::FunctionType::get(llvm::Type::getVoidTy(TheContext), args, false);
-    llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "writeString", TheModule.get());
+    // writeInteger: n as int
+    std::vector<llvm::Type*> writeIntArgs = {llvm::Type::getInt16Ty(TheContext)};
+    llvm::FunctionType *writeIntFT = llvm::FunctionType::get(llvm::Type::getVoidTy(TheContext), writeIntArgs, false);
+    llvm::Function::Create(writeIntFT, llvm::Function::ExternalLinkage, "writeInteger", TheModule.get());
 
-    // Declare readInteger
+    // writeByte: b as byte (εκτυπώνει αριθμητική τιμή)
+    // writeChar: b as byte (εκτυπώνει ASCII χαρακτήρα)
+    std::vector<llvm::Type*> writeByteArgs = {llvm::Type::getInt8Ty(TheContext)};
+    llvm::FunctionType *writeByteFT = llvm::FunctionType::get(llvm::Type::getVoidTy(TheContext), writeByteArgs, false);
+    llvm::Function::Create(writeByteFT, llvm::Function::ExternalLinkage, "writeByte", TheModule.get());
+    llvm::Function::Create(writeByteFT, llvm::Function::ExternalLinkage, "writeChar", TheModule.get());
+
+    // writeString: s as byte []
+    std::vector<llvm::Type*> writeStrArgs = {llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext))};
+    llvm::FunctionType *writeStrFT = llvm::FunctionType::get(llvm::Type::getVoidTy(TheContext), writeStrArgs, false);
+    llvm::Function::Create(writeStrFT, llvm::Function::ExternalLinkage, "writeString", TheModule.get());
+    
+    // readInteger is int
     llvm::FunctionType *readIntFT = llvm::FunctionType::get(llvm::Type::getInt16Ty(TheContext), false);
     llvm::Function::Create(readIntFT, llvm::Function::ExternalLinkage, "readInteger", TheModule.get());
 
-    // Declare writeInteger
-    std::vector<llvm::Type*> writeIntArgs;
-    writeIntArgs.push_back(llvm::Type::getInt16Ty(TheContext));
-    llvm::FunctionType *writeIntFT = llvm::FunctionType::get(llvm::Type::getVoidTy(TheContext), writeIntArgs, false);
-    llvm::Function::Create(writeIntFT, llvm::Function::ExternalLinkage, "writeInteger", TheModule.get());
+    // readByte is byte / readChar is byte
+    llvm::FunctionType *readByteFT = llvm::FunctionType::get(llvm::Type::getInt8Ty(TheContext), false);
+    llvm::Function::Create(readByteFT, llvm::Function::ExternalLinkage, "readByte", TheModule.get());
+    llvm::Function::Create(readByteFT, llvm::Function::ExternalLinkage, "readChar", TheModule.get());
+
+    // readString: n as int, s as byte []
+    std::vector<llvm::Type*> readStrArgs = {
+        llvm::Type::getInt16Ty(TheContext), 
+        llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext))
+    };
+    llvm::FunctionType *readStrFT = llvm::FunctionType::get(llvm::Type::getVoidTy(TheContext), readStrArgs, false);
+    llvm::Function::Create(readStrFT, llvm::Function::ExternalLinkage, "readString", TheModule.get());
+    
+    // extend: b as byte -> int (i8 to i16)
+    std::vector<llvm::Type*> extArgs = {llvm::Type::getInt8Ty(TheContext)};
+    llvm::FunctionType *extFT = llvm::FunctionType::get(llvm::Type::getInt16Ty(TheContext), extArgs, false);
+    llvm::Function::Create(extFT, llvm::Function::ExternalLinkage, "extend", TheModule.get());
+
+    // shrink: i as int -> byte (i16 to i8)
+    std::vector<llvm::Type*> shrArgs = {llvm::Type::getInt16Ty(TheContext)};
+    llvm::FunctionType *shrFT = llvm::FunctionType::get(llvm::Type::getInt8Ty(TheContext), shrArgs, false);
+    llvm::Function::Create(shrFT, llvm::Function::ExternalLinkage, "shrink", TheModule.get());
+
+    // strlen is int: s as byte []
+    std::vector<llvm::Type*> strlenArgs = {llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext))};
+    llvm::FunctionType *strlenFT = llvm::FunctionType::get(llvm::Type::getInt16Ty(TheContext), strlenArgs, false);
+    llvm::Function::Create(strlenFT, llvm::Function::ExternalLinkage, "strlen", TheModule.get());
+
+    // strcmp is int: s1 s2 as byte []
+    std::vector<llvm::Type*> strcmpArgs = {
+        llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext)),
+        llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext))
+    };
+    llvm::FunctionType *strcmpFT = llvm::FunctionType::get(llvm::Type::getInt16Ty(TheContext), strcmpArgs, false);
+    llvm::Function::Create(strcmpFT, llvm::Function::ExternalLinkage, "strcmp", TheModule.get());
+
+    // strcpy / strcat: trg src as byte []
+    std::vector<llvm::Type*> strCopyArgs = {
+        llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext)),
+        llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext))
+    };
+    llvm::FunctionType *strCopyFT = llvm::FunctionType::get(llvm::Type::getVoidTy(TheContext), strCopyArgs, false);
+    llvm::Function::Create(strCopyFT, llvm::Function::ExternalLinkage, "strcpy", TheModule.get());
+    llvm::Function::Create(strCopyFT, llvm::Function::ExternalLinkage, "strcat", TheModule.get());
 }
 
+// Βοηθητική συνάρτηση για μετατροπή escape sequences
+std::string unescapeString(const std::string& input) {
+    std::string result;
+    for (size_t i = 0; i < input.length(); ++i) {
+        // Αν βρούμε backslash και υπάρχει επόμενος χαρακτήρας
+        if (input[i] == '\\' && i + 1 < input.length()) {
+            switch (input[i+1]) {
+                case 'n': result += '\n'; break; // Αλλαγή γραμμής
+                case 't': result += '\t'; break; // Tab
+                case 'r': result += '\r'; break; // Carriage return
+                case '0': result += '\0'; break; // Null terminator
+                case '\\': result += '\\'; break; // Απλό backslash
+                default: 
+                    result += '\\'; 
+                    result += input[i+1]; 
+                    break;
+            }
+            i++; // Προσπερνάμε τον χαρακτήρα που μόλις μετατρέψαμε (π.χ. το 'n')
+        } else {
+            result += input[i];
+        }
+    }
+    return result;
+}
 // ==========================================
 // Code Generation Implementations
 // ==========================================
@@ -236,12 +310,13 @@ llvm::Value* Lvalue::codegen() {
         isLocalArray)) {
         return Ptr;
     }
-    // Διαφορετικά, κάνουμε Load την τιμή (π.χ. για να διαβάσουμε το a[i] ή το x)
-    llvm::Type *ValTy = llvm::Type::getInt16Ty(TheContext); // Default int (i16)
-    if (entry->type == TYPE_BYTE || entry->type == TYPE_REF_BYTE || 
-       (entry->type == TYPE_PARAM && entry->return_value == TYPE_BYTE)) {
-        ValTy = llvm::Type::getInt8Ty(TheContext); // Byte (i8)
-    }
+
+    // Διαφορετικά, κάνουμε Load την τιμή (π.χ. a[i] ή x)
+    bool isByte = (entry->type == TYPE_BYTE) || (entry->type == TYPE_REF_BYTE) || 
+                  (entry->type == TYPE_PARAM && (entry->return_value == TYPE_BYTE || entry->return_value == TYPE_REF_BYTE));
+                  
+    llvm::Type *ValTy = isByte ? llvm::Type::getInt8Ty(TheContext) : llvm::Type::getInt16Ty(TheContext);
+
 
     return Builder.CreateLoad(ValTy, Ptr, id->getName() + "_val");
 }
@@ -620,13 +695,26 @@ llvm::Value* ContStmt::codegen() {
 
 llvm::Value* FuncDecl::codegen() { return nullptr; }
 
-llvm::Value* Bool::codegen() { return nullptr; }
+llvm::Value* Bool::codegen() {
+    // Στην Dana τα booleans είναι bytes (i8), όπου 1 = true, 0 = false
+    return llvm::ConstantInt::get(llvm::Type::getInt8Ty(TheContext), flag ? 1 : 0);
+}
+
 llvm::Value* BoolBinOp::codegen() { return nullptr; }
 
 
 llvm::Value* FuncStmt::codegen() { return nullptr; }
 
-llvm::Value* NotExpr::codegen() { return nullptr; }
+llvm::Value* NotExpr::codegen() {
+    if (!expr) return nullptr;
+    llvm::Value *val = expr->codegen();
+    if (!val) return nullptr;
+    
+    // Συγκρίνουμε με το 0 και μετατρέπουμε το αποτέλεσμα (i1) στον αρχικό τύπο
+    llvm::Constant *Zero = llvm::ConstantInt::get(val->getType(), 0);
+    llvm::Value *cmp = Builder.CreateICmpEQ(val, Zero, "not_cmp");
+    return Builder.CreateZExt(cmp, val->getType(), "not_val");
+}
 
 llvm::Value* Cond::codegen() {
     // Διαχείριση απλής έκφρασης ως συνθήκη 
@@ -677,21 +765,69 @@ llvm::Value* Cond::codegen() {
         return nullptr; 
     }
 }
-llvm::Value* NotCond::codegen() { return nullptr; }
 
+llvm::Value* NotCond::codegen() {
+    if (!con) return nullptr;
+    llvm::Value *condVal = con->codegen();
+    if (!condVal) return nullptr;
+    
+    // Αν είναι i1 (από ICmp), κάνουμε Not. Αν είναι i8/i16, συγκρίνουμε με 0.
+    if (condVal->getType()->isIntegerTy(1)) {
+        return Builder.CreateNot(condVal, "not_cond");
+    } else {
+        llvm::Constant *Zero = llvm::ConstantInt::get(condVal->getType(), 0);
+        return Builder.CreateICmpEQ(condVal, Zero, "not_cond_cmp"); // 0 γίνεται true (1)
+    }
+}
 llvm::Value* Opt_Elif_Else::codegen() {
-    // Υποστήριξη για το περιεχόμενο του else block
-    if (stmts) {
-        return stmts->codegen();
+    // Περίπτωση 1: Είναι απλό 'else' (δεν έχει συνθήκη)
+    if (condition == nullptr) {
+        if (stmts) stmts->codegen();
+        return nullptr;
     }
-    if (elif_else) {
-        return elif_else->codegen();
+
+    // Περίπτωση 2: Είναι 'elif' (έχει συνθήκη)
+    llvm::Value *condVal = condition->codegen();
+    if (!condVal) return nullptr;
+
+    llvm::Constant *Zero = llvm::ConstantInt::get(condVal->getType(), 0);
+    condVal = Builder.CreateICmpNE(condVal, Zero, "elif_cond");
+
+    llvm::Function *TheFunction = Builder.GetInsertBlock()->getParent();
+    llvm::BasicBlock *ThenBB = llvm::BasicBlock::Create(TheContext, "elif_then", TheFunction);
+    llvm::BasicBlock *ElseBB = llvm::BasicBlock::Create(TheContext, "elif_else");
+    llvm::BasicBlock *MergeBB = llvm::BasicBlock::Create(TheContext, "elif_merge");
+
+    bool hasNextElse = (elif_else != nullptr);
+    Builder.CreateCondBr(condVal, ThenBB, hasNextElse ? ElseBB : MergeBB);
+
+    // -- Elif Then Block --
+    Builder.SetInsertPoint(ThenBB);
+    if (stmts) stmts->codegen();
+    if (!Builder.GetInsertBlock()->getTerminator()) Builder.CreateBr(MergeBB);
+
+    // -- Elif Else Block (Αναδρομή στο επόμενο elif/else) --
+    if (hasNextElse) {
+        TheFunction->insert(TheFunction->end(), ElseBB);
+        Builder.SetInsertPoint(ElseBB);
+        elif_else->codegen();
+        if (!Builder.GetInsertBlock()->getTerminator()) Builder.CreateBr(MergeBB);
     }
+
+    // -- Merge Block --
+    TheFunction->insert(TheFunction->end(), MergeBB);
+    Builder.SetInsertPoint(MergeBB);
+
     return nullptr;
 }
+
 // --- Lvalue GEP ---
 llvm::Value* Lvalue::getPointer() {
-    if (!str.empty()) return Builder.CreateGlobalStringPtr(str);
+    if (!str.empty()) {
+        // Καθαρίζουμε το string πριν το δώσουμε στον LLVM
+        std::string cleanStr = unescapeString(str);
+        return Builder.CreateGlobalStringPtr(cleanStr);
+    }
     if (!id) return nullptr;
 
     SymbolEntry *entry = st.lookup(id->getName());
@@ -705,21 +841,29 @@ llvm::Value* Lvalue::getPointer() {
        (entry->type == TYPE_PARAM && BaseTy->isPointerTy())) {
         Ptr = Builder.CreateLoad(BaseTy, Ptr, id->getName() + "_base");
         
-        // Βρίσκουμε τον τύπο του στοιχείου (i8 ή i16)
-        BaseTy = (entry->type == TYPE_REF_BYTE || (entry->type == TYPE_PARAM && entry->return_value == TYPE_BYTE)) 
-                 ? llvm::Type::getInt8Ty(TheContext) 
-                 : llvm::Type::getInt16Ty(TheContext);
+        // --- ΝΕΟΣ ΕΛΕΓΧΟΣ: Ελέγχουμε αν η βάση είναι BYTE ή REF_BYTE ---
+        bool isByte = (entry->type == TYPE_BYTE) || (entry->type == TYPE_REF_BYTE) || 
+                      (entry->type == TYPE_PARAM && (entry->return_value == TYPE_BYTE || entry->return_value == TYPE_REF_BYTE));
+        BaseTy = isByte ? llvm::Type::getInt8Ty(TheContext) : llvm::Type::getInt16Ty(TheContext);
     }
+
+    // Εξασφαλίζουμε ότι το BaseTy είναι σωστό ΠΡΙΝ υπολογίσουμε τη θέση [i]
+    bool isByte = (entry->type == TYPE_BYTE) || (entry->type == TYPE_REF_BYTE) || 
+                  (entry->type == TYPE_PARAM && (entry->return_value == TYPE_BYTE || entry->return_value == TYPE_REF_BYTE));
+                  
+    BaseTy = isByte ? llvm::Type::getInt8Ty(TheContext) : llvm::Type::getInt16Ty(TheContext);
 
     // Διαχείριση των θέσεων [i] (Array Indexing)
     if (expr_list) {
         for (Expr *idx_expr : expr_list->getExprs()) {
             llvm::Value *IdxVal = idx_expr->codegen();
             if (!IdxVal) continue;
-            // Το LLVM θέλει 64-bit ακεραίους για τους δείκτες (indexes)
             IdxVal = Builder.CreateSExt(IdxVal, llvm::Type::getInt64Ty(TheContext), "idx_ext");
+            
+            // Το BaseTy εδώ θα είναι i8 για τα strings και i16 για τα ints!
             Ptr = Builder.CreateInBoundsGEP(BaseTy, Ptr, {IdxVal}, "arrayidx");
         }
     }
+
     return Ptr;
 }
