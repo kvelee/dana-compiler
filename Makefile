@@ -3,7 +3,7 @@
 LLVM_CONFIG=llvm-config-18
 
 CXX=g++
-CXXFLAGS=-Wall -g -std=c++17 `$(LLVM_CONFIG) --cxxflags`
+CXXFLAGS=-Wall -Wno-unused-variable -g -std=c++17 `$(LLVM_CONFIG) --cxxflags`
 LDFLAGS=`$(LLVM_CONFIG) --ldflags --system-libs --libs core`
 
 default: danac
