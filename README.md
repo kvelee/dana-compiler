@@ -60,3 +60,4 @@ make
 -   `-o <file>` → όνομα executable  
 -   `-i` → print IR  
 -   `-f` → print Assembly
+-   `-O` → optimize τον κώδικα (Dead Code Elimination, Constant Folding etc)
