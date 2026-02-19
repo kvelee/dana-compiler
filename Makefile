@@ -39,7 +39,7 @@ test:
 	done
 
 clean:
-	$(RM) lexer.cpp parser.cpp parser.hpp parser.output *.o *.ll
+	$(RM) lexer.cpp parser.cpp parser.hpp parser.output *.o *.ll *.exe *.output
 
 distclean: clean
 	$(RM) danac

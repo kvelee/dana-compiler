@@ -24,6 +24,8 @@ std::vector<std::pair<std::string, llvm::BasicBlock*>> LoopHeaderBlocks;
 // άρτης που συνδέει το Scope Symbol με τη μετονομασμένη LLVM συνάρτηση (π.χ. @f.2)
 std::map<SymbolEntry*, llvm::Function*> FuncPointers;
 
+bool isOutermostFunction = true;
+
 // Helper function for extracting the LLVM-Type
 llvm::Type *getLLVMType(SymbolType t) {
     switch (t) {
@@ -429,15 +431,22 @@ llvm::Value* BinOp::codegen() {
 
 // --- ReturnStmt ---
 llvm::Value* ReturnStmt::codegen() {
-    if (!e) return Builder.CreateRetVoid(); // Για exit/return σε procedures
+    llvm::Function *TheFunction = Builder.GetInsertBlock()->getParent();
+    llvm::Type *retType = TheFunction->getReturnType();
+
+    if (!e) { 
+        // Αν η συνάρτηση είναι η "main" που επιστρέφει i32, δώσε 0 με ασφάλεια
+        if (TheFunction->getName() == "main") {
+            return Builder.CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(TheContext), 0));
+        }
+        return Builder.CreateRetVoid(); 
+    }
     
     llvm::Value *val = e->codegen();
     if (!val) return nullptr;
 
     // Εξασφάλισε ότι το return type ταιριάζει με τη συνάρτηση
-    llvm::Type *retType = Builder.GetInsertBlock()->getParent()->getReturnType();
     if (val->getType() != retType && !retType->isVoidTy()) {
-        // Αν χρειάζεται promotion (π.χ. i8 σε i16)
         if (val->getType()->getIntegerBitWidth() < retType->getIntegerBitWidth())
             val = Builder.CreateSExt(val, retType, "ret_ext");
         else
@@ -495,20 +504,25 @@ llvm::Value* FuncDefBlock::codegen() {
         return nullptr;
     }
     
-    std::string name = header->getName();
+    std::string originalName = header->getName();
+    std::string llvmName = originalName;
     
-    // ΔΙΟΡΘΩΣΗ: Αποφυγή duplicate variable για τη main. 
-    // Η main υπάρχει ήδη στο Global Scope από τη φάση του sem()!
-    SymbolType retTypeSym = header->gettype() ? header->gettype()->getsymbol() : TYPE_FUNC;
-    if (name != "main") {
-        st.insert(name, TYPE_FUNC, retTypeSym);
+    // Η ΜΑΓΕΙΑ: Αν είναι η πρώτη συνάρτηση, την βαφτίζουμε "main" για τον LLVM
+    if (isOutermostFunction) {
+        llvmName = "main";
+        isOutermostFunction = false; // Όλες οι επόμενες φωλιασμένες παραμένουν ως έχουν
+    } else {
+        // Εισαγωγή στο scope μόνο για τις εσωτερικές (η εξωτερική έχει ήδη μπει από τη sem)
+        SymbolType retTypeSym = header->gettype() ? header->gettype()->getsymbol() : TYPE_FUNC;
+        st.insert(originalName, TYPE_FUNC, retTypeSym);
     }
-    SymbolEntry *funcEntry = st.lookup(name);
+
+    SymbolEntry *funcEntry = st.lookup(originalName);
 
     // 1. Άνοιγμα νέου scope για τη συνάρτηση (Rescoping) 
     st.openScope();
-    
-    // 2. Προετοιμασία τύπων παραμέτρων ...
+
+    // 2. Προετοιμασία τύπων παραμέτρων
     std::vector<llvm::Type*> argTypes;
     std::vector<std::pair<std::string, SymbolType>> paramInfo;
     
@@ -531,13 +545,14 @@ llvm::Value* FuncDefBlock::codegen() {
     }
 
     // --- ΒΗΜΑ 3: Δημιουργία συνάρτησης ---
-    llvm::Type *returnType = (name == "main") ? llvm::Type::getInt32Ty(TheContext) : 
+    // ΠΡΟΣΟΧΗ: Χρησιμοποιούμε το llvmName εδώ για να παραχθεί η @main!
+    llvm::Type *returnType = (llvmName == "main") ? llvm::Type::getInt32Ty(TheContext) : 
         (header->gettype() ? getLLVMType(header->gettype()->getsymbol()) : llvm::Type::getVoidTy(TheContext));
 
     llvm::FunctionType *FT = llvm::FunctionType::get(returnType, argTypes, false);
-    llvm::Function *TheFunction = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, name, TheModule.get());
+    llvm::Function *TheFunction = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, llvmName, TheModule.get());
 
-    // ΠΡΟΣΘΗΚΗ: Σύνδεση της συνάρτησης με το Symbol Entry
+    // Συνδέουμε το αρχικό όνομα (π.χ. "solve") με το νέο function
     if (funcEntry) {
         FuncPointers[funcEntry] = TheFunction;
     }
@@ -590,7 +605,7 @@ llvm::Value* FuncDefBlock::codegen() {
 
     // --- ΒΗΜΑ 9: Διαχείριση Return ---
     if (!Builder.GetInsertBlock()->getTerminator()) {
-        if (name == "main") {
+        if (originalName == "main") {
             Builder.CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(TheContext), 0));
         } else if (returnType->isVoidTy()) {
             Builder.CreateRetVoid();
@@ -607,7 +622,7 @@ llvm::Value* FuncDefBlock::codegen() {
 
     // Αντί για σκέτο llvm::verifyFunction(*TheFunction);
     if (llvm::verifyFunction(*TheFunction, &llvm::errs())) {
-        std::cerr << "LLVM Verification failed for function: " << name << "\n";
+        std::cerr << "LLVM Verification failed for function: " << originalName << "\n";
     }
     return TheFunction;
 }
