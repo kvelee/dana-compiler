@@ -644,12 +644,20 @@ llvm::Value* Stmt::codegen() { return nullptr; }
 llvm::Value* SkipStmt::codegen() { return nullptr; }
 
 llvm::Value* ExitStmt::codegen() {
-    // Η exit στην Dana είναι απλά ένα return χωρίς τιμή (void return)
-    Builder.CreateRetVoid();
+    llvm::Function *TheFunction = Builder.GetInsertBlock()->getParent();
+    llvm::Type *retType = TheFunction->getReturnType();
+
+    // Αν η συνάρτηση είναι void (κανονικές διαδικασίες Dana), κάνε ret void
+    if (retType->isVoidTy()) {
+        Builder.CreateRetVoid();
+    } else {
+        // Αν δεν είναι void (π.χ. είναι η main που την κάναμε αναγκαστικά i32), 
+        // επέστρεψε την τιμή 0 στον σωστό τύπο.
+        Builder.CreateRet(llvm::ConstantInt::get(retType, 0));
+    }
 
     // Επειδή φεύγουμε από τη συνάρτηση, φτιάχνουμε ένα "νεκρό" block 
     // για εντολές που τυχόν υπάρχουν από κάτω, ώστε να μην "σκάσει" ο LLVM Builder.
-    llvm::Function *TheFunction = Builder.GetInsertBlock()->getParent();
     llvm::BasicBlock *DeadBB = llvm::BasicBlock::Create(TheContext, "dead_after_exit", TheFunction);
     Builder.SetInsertPoint(DeadBB);
 
