@@ -353,6 +353,20 @@ public:
         return result;
     }
 
+    // Extract array parameters and their dimensions for 2D/3D indexing
+    std::vector<std::pair<std::string, std::vector<int>>> getArrayParams() const {
+        std::vector<std::pair<std::string, std::vector<int>>> result;
+        std::vector<Id *> ids = const_cast<Id_List&>(id_list).getIds();
+        for (Id *id : ids) {
+            if (array_type) result.push_back({id->getName(), array_type->getDims()});
+        }
+        if (next != nullptr) {
+            auto nextRes = next->getArrayParams();
+            result.insert(result.end(), nextRes.begin(), nextRes.end());
+        }
+        return result;
+    }
+
 private:
     Id_List id_list; // Maybe to change it to pointer
     SymbolType data_type;

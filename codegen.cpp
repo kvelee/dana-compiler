@@ -24,22 +24,24 @@ std::vector<std::pair<std::string, llvm::BasicBlock*>> LoopHeaderBlocks;
 // άρτης που συνδέει το Scope Symbol με τη μετονομασμένη LLVM συνάρτηση (π.χ. @f.2)
 std::map<SymbolEntry*, llvm::Function*> FuncPointers;
 
+std::map<SymbolEntry*, std::vector<int>> ArrayDimensions;
+
 bool isOutermostFunction = true;
 
 // Helper function for extracting the LLVM-Type
 llvm::Type *getLLVMType(SymbolType t) {
     switch (t) {
         case TYPE_INT: 
-            return llvm::Type::getInt16Ty(TheContext);
+            return llvm::Type::getInt32Ty(TheContext);
         case TYPE_BYTE: 
             return llvm::Type::getInt8Ty(TheContext);
         case TYPE_BOOL: 
             return llvm::Type::getInt8Ty(TheContext);
         case TYPE_PARAM:
             // TYPE_PARAM defaults to i16 for numeric parameters
-            return llvm::Type::getInt16Ty(TheContext);
+            return llvm::Type::getInt32Ty(TheContext);
         case TYPE_REF_INT: 
-            return llvm::PointerType::getUnqual(llvm::Type::getInt16Ty(TheContext));
+            return llvm::PointerType::getUnqual(llvm::Type::getInt32Ty(TheContext));
         case TYPE_REF_BYTE:
             return llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext));
         case TYPE_FUNC:    // Functions should never need alloca, but return void as fallback
@@ -47,7 +49,7 @@ llvm::Type *getLLVMType(SymbolType t) {
         case TYPE_INVALID:
         default: 
             std::cerr << "Warning: getLLVMType called with invalid/unknown type. Returning Int16Ty as fallback." << std::endl;
-            return llvm::Type::getInt16Ty(TheContext);
+            return llvm::Type::getInt32Ty(TheContext);
     }
 }
 
@@ -55,7 +57,7 @@ void initializeLLVM() {
     TheModule = std::make_unique<llvm::Module>("DanaModule", TheContext);
     
     // writeInteger: n as int
-    std::vector<llvm::Type*> writeIntArgs = {llvm::Type::getInt16Ty(TheContext)};
+    std::vector<llvm::Type*> writeIntArgs = {llvm::Type::getInt32Ty(TheContext)};
     llvm::FunctionType *writeIntFT = llvm::FunctionType::get(llvm::Type::getVoidTy(TheContext), writeIntArgs, false);
     llvm::Function::Create(writeIntFT, llvm::Function::ExternalLinkage, "writeInteger", TheModule.get());
 
@@ -72,7 +74,7 @@ void initializeLLVM() {
     llvm::Function::Create(writeStrFT, llvm::Function::ExternalLinkage, "writeString", TheModule.get());
     
     // readInteger is int
-    llvm::FunctionType *readIntFT = llvm::FunctionType::get(llvm::Type::getInt16Ty(TheContext), false);
+    llvm::FunctionType *readIntFT = llvm::FunctionType::get(llvm::Type::getInt32Ty(TheContext), false);
     llvm::Function::Create(readIntFT, llvm::Function::ExternalLinkage, "readInteger", TheModule.get());
 
     // readByte is byte / readChar is byte
@@ -82,7 +84,7 @@ void initializeLLVM() {
 
     // readString: n as int, s as byte []
     std::vector<llvm::Type*> readStrArgs = {
-        llvm::Type::getInt16Ty(TheContext), 
+        llvm::Type::getInt32Ty(TheContext), 
         llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext))
     };
     llvm::FunctionType *readStrFT = llvm::FunctionType::get(llvm::Type::getVoidTy(TheContext), readStrArgs, false);
@@ -90,17 +92,17 @@ void initializeLLVM() {
     
     // extend: b as byte -> int (i8 to i16)
     std::vector<llvm::Type*> extArgs = {llvm::Type::getInt8Ty(TheContext)};
-    llvm::FunctionType *extFT = llvm::FunctionType::get(llvm::Type::getInt16Ty(TheContext), extArgs, false);
+    llvm::FunctionType *extFT = llvm::FunctionType::get(llvm::Type::getInt32Ty(TheContext), extArgs, false);
     llvm::Function::Create(extFT, llvm::Function::ExternalLinkage, "extend", TheModule.get());
 
     // shrink: i as int -> byte (i16 to i8)
-    std::vector<llvm::Type*> shrArgs = {llvm::Type::getInt16Ty(TheContext)};
+    std::vector<llvm::Type*> shrArgs = {llvm::Type::getInt32Ty(TheContext)};
     llvm::FunctionType *shrFT = llvm::FunctionType::get(llvm::Type::getInt8Ty(TheContext), shrArgs, false);
     llvm::Function::Create(shrFT, llvm::Function::ExternalLinkage, "shrink", TheModule.get());
 
     // strlen is int: s as byte []
     std::vector<llvm::Type*> strlenArgs = {llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext))};
-    llvm::FunctionType *strlenFT = llvm::FunctionType::get(llvm::Type::getInt16Ty(TheContext), strlenArgs, false);
+    llvm::FunctionType *strlenFT = llvm::FunctionType::get(llvm::Type::getInt32Ty(TheContext), strlenArgs, false);
     llvm::Function::Create(strlenFT, llvm::Function::ExternalLinkage, "strlen", TheModule.get());
 
     // strcmp is int: s1 s2 as byte []
@@ -108,7 +110,7 @@ void initializeLLVM() {
         llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext)),
         llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext))
     };
-    llvm::FunctionType *strcmpFT = llvm::FunctionType::get(llvm::Type::getInt16Ty(TheContext), strcmpArgs, false);
+    llvm::FunctionType *strcmpFT = llvm::FunctionType::get(llvm::Type::getInt32Ty(TheContext), strcmpArgs, false);
     llvm::Function::Create(strcmpFT, llvm::Function::ExternalLinkage, "strcmp", TheModule.get());
 
     // strcpy / strcat: trg src as byte []
@@ -151,8 +153,8 @@ std::string unescapeString(const std::string& input) {
 
 // --- Number (Int Constants) ---
 llvm::Value* Number::codegen(){
-    // Dana ints are 16-bit
-    return llvm::ConstantInt::get(TheContext, llvm::APInt(16, numb, true));
+    // Dana ints are now 32-bit
+    return llvm::ConstantInt::get(TheContext, llvm::APInt(32, numb, true));
 }
 
 // --- CharConst (Byte Constants) ---
@@ -230,7 +232,6 @@ llvm::Value* Func_Call::codegen() {
                     SymbolEntry *entry = st.lookup(id_arg->getName());
                     if (entry && entry->alloca_ptr) {
                         llvm::Value *Ptr = entry->alloca_ptr;
-                        // Ελέγχουμε αν είναι pass-by-reference
                         bool isRef = (entry->type == TYPE_REF_INT || entry->type == TYPE_REF_BYTE ||
                                      (entry->type == TYPE_PARAM && (entry->return_value == TYPE_REF_INT || entry->return_value == TYPE_REF_BYTE)));
                         if (isRef && !llvm::isa<llvm::GlobalVariable>(Ptr)) {
@@ -238,14 +239,37 @@ llvm::Value* Func_Call::codegen() {
                         }
                         argVal = Ptr;
                     }
+                } else {
+                    // ΔΙΟΡΘΩΣΗ: r-value (π.χ. BinOp, Number) passed to reference (ptr).
+                    // Δημιουργούμε μια κρυφή (προσωρινή) μεταβλητή για να πάρουμε τον δείκτη της!
+                    llvm::BasicBlock *InsertBB = Builder.GetInsertBlock();
+                    llvm::Function *TheFunction = InsertBB->getParent();
+                    llvm::IRBuilder<> TmpBuilder(&TheFunction->getEntryBlock(), TheFunction->getEntryBlock().begin());
+                    
+                    // Φτιάχνουμε alloca, γράφουμε την τιμή μέσα, και περνάμε το alloca (ptr) ως όρισμα!
+                    llvm::AllocaInst *tempAlloca = TmpBuilder.CreateAlloca(argVal->getType(), nullptr, "temp_ref_arg");
+                    Builder.CreateStore(argVal, tempAlloca);
+                    argVal = tempAlloca;
                 }
             }
             
+            
+            // --- ΝΕΟ: ΑΣΦΑΛΗΣ ΜΕΤΑΤΡΟΠΗ ΤΥΠΩΝ ΓΙΑ ΝΑ ΜΗΝ ΣΚΑΕΙ Ο LLVM ---
+            if (i < CalleeF->arg_size()) {
+                llvm::Type *ExpectedTy = CalleeF->getArg(i)->getType();
+                if (argVal->getType() != ExpectedTy && argVal->getType()->isIntegerTy() && ExpectedTy->isIntegerTy()) {
+                    if (argVal->getType()->getIntegerBitWidth() < ExpectedTy->getIntegerBitWidth()) {
+                        argVal = Builder.CreateZExt(argVal, ExpectedTy, "arg_ext");
+                    } else {
+                        argVal = Builder.CreateTrunc(argVal, ExpectedTy, "arg_trunc");
+                    }
+                }
+            }
+
             ArgsV.push_back(argVal);
             if (!ArgsV.back()) return nullptr;
             i++;
         }
-
     }
 
     if (CalleeF->arg_size() != ArgsV.size()) {
@@ -285,6 +309,12 @@ llvm::Value* LocalDef::codegen() {
             st.insert(id->getName(), tp->getsymbol());
             SymbolEntry *e = st.lookup(id->getName());
             
+            // ---- Αποθήκευση διαστάσεων για το Index Flattening ---
+            std::vector<int> currentDims = tp->getDims();
+            if (e && !currentDims.empty()) {
+                ArrayDimensions[e] = currentDims;
+            }
+
             if (isMain) {
                 // Προαγωγή σε Global Variable
                 llvm::Type *allocType = llvmType;
@@ -337,12 +367,14 @@ llvm::Value* Id::codegen() {
         llvm::Value *PtrToPtr = Builder.CreateLoad(llvm::PointerType::getUnqual(TheContext), e->alloca_ptr, id + "_ptr");
         
         bool isByte = (e->type == TYPE_REF_BYTE) || (e->type == TYPE_PARAM && e->return_value == TYPE_REF_BYTE);
-        llvm::Type *ValueTy = isByte ? llvm::Type::getInt8Ty(TheContext) : llvm::Type::getInt16Ty(TheContext);
+        llvm::Type *ValueTy = isByte ? llvm::Type::getInt8Ty(TheContext) : llvm::Type::getInt32Ty(TheContext);
         
         return Builder.CreateLoad(ValueTy, PtrToPtr, id.c_str());
     }
     
-    llvm::Type *llvmType = getLLVMType(e->type);
+    SymbolType actualType = (e->type == TYPE_PARAM) ? e->return_value : e->type;
+    llvm::Type *llvmType = getLLVMType(actualType);
+    
     return Builder.CreateLoad(llvmType, e->alloca_ptr, id.c_str());
 }
 
@@ -366,7 +398,7 @@ llvm::Value* Lvalue::codegen() {
 
     bool isByte = (entry->type == TYPE_BYTE) || (entry->type == TYPE_REF_BYTE) || 
                   (entry->type == TYPE_PARAM && (entry->return_value == TYPE_BYTE || entry->return_value == TYPE_REF_BYTE));
-    llvm::Type *ValTy = isByte ? llvm::Type::getInt8Ty(TheContext) : llvm::Type::getInt16Ty(TheContext);
+    llvm::Type *ValTy = isByte ? llvm::Type::getInt8Ty(TheContext) : llvm::Type::getInt32Ty(TheContext);
 
     return Builder.CreateLoad(ValTy, Ptr, id->getName() + "_val");
 }
@@ -386,9 +418,30 @@ llvm::Value* LvalueStmt::codegen() {
     llvm::Value *RVal = e->codegen();
     if (!RVal) return nullptr;
     
+    // --- ΝΕΟ: ΑΣΦΑΛΗΣ ΜΕΤΑΤΡΟΠΗ ΓΙΑ ΝΑ ΜΗΝ ΧΤΥΠΑΕΙ Ο LLVM STORE ---
+    // Αρχικοποιούμε το ExpectedTy. Στον LLVM 18 απαγορεύεται το getPointerElementType().
+    // Θα το βρούμε αξιόπιστα από το δικό μας Symbol Table!
+    llvm::Type *ExpectedTy = llvm::Type::getInt32Ty(TheContext); // Fallback
+    
+    SymbolEntry *entry = st.lookup(l->getIdName());
+    if (entry) {
+        bool isByte = (entry->type == TYPE_BYTE) || (entry->type == TYPE_REF_BYTE) || 
+                      (entry->type == TYPE_PARAM && (entry->return_value == TYPE_BYTE || entry->return_value == TYPE_REF_BYTE));
+        ExpectedTy = isByte ? llvm::Type::getInt8Ty(TheContext) : llvm::Type::getInt32Ty(TheContext);
+    }
+    if (RVal->getType() != ExpectedTy && RVal->getType()->isIntegerTy() && ExpectedTy->isIntegerTy()) {
+        if (RVal->getType()->getIntegerBitWidth() < ExpectedTy->getIntegerBitWidth()) {
+            RVal = Builder.CreateZExt(RVal, ExpectedTy, "store_ext");
+        } else {
+            RVal = Builder.CreateTrunc(RVal, ExpectedTy, "store_trunc");
+        }
+    }
+
     // Αποθηκεύουμε την τιμή στη μνήμη
     return Builder.CreateStore(RVal, LValPtr);
 }
+
+
 // --- UniOp ---
 llvm::Value* UniOp::codegen() {
     llvm::Value *val = e->codegen();
@@ -530,11 +583,11 @@ llvm::Value* FuncDefBlock::codegen() {
         paramInfo = header->getOpt_Fpar()->getParams();
         for (const auto& param : paramInfo) {
             if (param.second == TYPE_INT) {
-                argTypes.push_back(llvm::Type::getInt16Ty(TheContext));
+                argTypes.push_back(llvm::Type::getInt32Ty(TheContext));
             } else if (param.second == TYPE_BYTE) {
                 argTypes.push_back(llvm::Type::getInt8Ty(TheContext));
             } else if (param.second == TYPE_REF_INT) {
-                argTypes.push_back(llvm::PointerType::getUnqual(llvm::Type::getInt16Ty(TheContext)));
+                argTypes.push_back(llvm::PointerType::getUnqual(llvm::Type::getInt32Ty(TheContext)));
             } else if (param.second == TYPE_REF_BYTE) {
                 argTypes.push_back(llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext)));
             } else {
@@ -572,6 +625,13 @@ llvm::Value* FuncDefBlock::codegen() {
 
     // 6. Δέσμευση μνήμης (alloca) για παραμέτρους στην αρχή του entry block 
     llvm::IRBuilder<> TmpBuilder(&TheFunction->getEntryBlock(), TheFunction->getEntryBlock().begin());
+
+    std::map<std::string, std::vector<int>> paramDimsMap;
+    if (header->getOpt_Fpar() != nullptr) {
+        auto arrParams = header->getOpt_Fpar()->getArrayParams();
+        for (auto &ap : arrParams) paramDimsMap[ap.first] = ap.second;
+    }
+
     unsigned argIndex = 0;
     for (auto& arg : TheFunction->args()) {
         if (argIndex < paramInfo.size()) {
@@ -581,6 +641,10 @@ llvm::Value* FuncDefBlock::codegen() {
             // Επανεισαγωγή παραμέτρου στον Symbol Table 
             st.insert(pName, TYPE_PARAM, pType);
             SymbolEntry *e = st.lookup(pName);
+
+            if (e && paramDimsMap.count(pName)) {
+                ArrayDimensions[e] = paramDimsMap[pName];
+            }
 
             // Treat ALL parameters uniformly: create alloca and store the parameter
             llvm::AllocaInst *Alloca = TmpBuilder.CreateAlloca(arg.getType(), nullptr, pName);
@@ -680,7 +744,6 @@ llvm::Value* Proc_Call::codegen() {
                     SymbolEntry *entry = st.lookup(id_arg->getName());
                     if (entry && entry->alloca_ptr) {
                         llvm::Value *Ptr = entry->alloca_ptr;
-                        // Ελέγχουμε αν είναι pass-by-reference
                         bool isRef = (entry->type == TYPE_REF_INT || entry->type == TYPE_REF_BYTE ||
                                      (entry->type == TYPE_PARAM && (entry->return_value == TYPE_REF_INT || entry->return_value == TYPE_REF_BYTE)));
                         if (isRef && !llvm::isa<llvm::GlobalVariable>(Ptr)) {
@@ -688,6 +751,17 @@ llvm::Value* Proc_Call::codegen() {
                         }
                         argVal = Ptr;
                     }
+                } else {
+                    // ΔΙΟΡΘΩΣΗ: r-value (π.χ. BinOp, Number) passed to reference (ptr).
+                    // Δημιουργούμε μια κρυφή (προσωρινή) μεταβλητή για να πάρουμε τον δείκτη της!
+                    llvm::BasicBlock *InsertBB = Builder.GetInsertBlock();
+                    llvm::Function *TheFunction = InsertBB->getParent();
+                    llvm::IRBuilder<> TmpBuilder(&TheFunction->getEntryBlock(), TheFunction->getEntryBlock().begin());
+                    
+                    // Φτιάχνουμε alloca, γράφουμε την τιμή μέσα, και περνάμε το alloca (ptr) ως όρισμα!
+                    llvm::AllocaInst *tempAlloca = TmpBuilder.CreateAlloca(argVal->getType(), nullptr, "temp_ref_arg");
+                    Builder.CreateStore(argVal, tempAlloca);
+                    argVal = tempAlloca;
                 }
             }
             
@@ -981,7 +1055,7 @@ llvm::Value* Lvalue::getPointer() {
     // 1. Καθορισμός BaseTy (i8 ή i16)
     bool isByte = (entry->type == TYPE_BYTE) || (entry->type == TYPE_REF_BYTE) || 
                   (entry->type == TYPE_PARAM && (entry->return_value == TYPE_BYTE || entry->return_value == TYPE_REF_BYTE));
-    llvm::Type *BaseTy = isByte ? llvm::Type::getInt8Ty(TheContext) : llvm::Type::getInt16Ty(TheContext);
+    llvm::Type *BaseTy = isByte ? llvm::Type::getInt8Ty(TheContext) : llvm::Type::getInt32Ty(TheContext);
 
     // 2. Χειρισμός Reference (Double Pointer) - LLVM 18 style
     bool isRef = (entry->type == TYPE_REF_INT || entry->type == TYPE_REF_BYTE ||
@@ -992,28 +1066,70 @@ llvm::Value* Lvalue::getPointer() {
         Ptr = Builder.CreateLoad(llvm::PointerType::getUnqual(TheContext), Ptr, id->getName() + "_ref_ptr");
     }
 
-    // 3. Διαχείριση Array Indexing [i]
+    // 3. Διαχείριση Array Indexing (Με Flattening και Partial Indexing)
     if (expr_list) {
-        for (Expr *idx_expr : expr_list->getExprs()) {
-            llvm::Value *IdxVal = idx_expr->codegen();
+        llvm::Value *FlatIdx = nullptr;
+        
+        // 1. Βρίσκουμε τις διαστάσεις του πίνακα
+        std::vector<int> actual_dims;
+        if (ArrayDimensions.count(entry)) {
+            actual_dims = ArrayDimensions[entry];
+        }
+
+        // 2. Υπολογίζουμε τους πολλαπλασιαστές
+        // Στη C/LLVM, η 1η διάσταση (d_0) αγνοείται ΠΑΝΤΑ κατά τον υπολογισμό του δείκτη!
+        std::vector<int> multipliers;
+        if (actual_dims.size() > 1) {
+            for (size_t i = 1; i < actual_dims.size(); ++i) {
+                multipliers.push_back(actual_dims[i]);
+            }
+        }
+
+        auto exprs = expr_list->getExprs();
+        for (size_t i = 0; i < exprs.size(); ++i) {
+            llvm::Value *IdxVal = exprs[i]->codegen();
             if (!IdxVal) continue;
             IdxVal = Builder.CreateSExt(IdxVal, llvm::Type::getInt64Ty(TheContext), "idx_ext");
 
-            // Έλεγχος για Global Variable (Πίνακες της main)
-            if (auto *GV = llvm::dyn_cast<llvm::GlobalVariable>(Ptr)) {
-                // Χρησιμοποιούμε getValueType() αντί για getPointerElementType()
-                if (GV->getValueType()->isArrayTy()) {
-                    llvm::Value *Zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(TheContext), 0);
-                    // Στο GEP δίνουμε τον τύπο του πίνακα (getValueType)
-                    Ptr = Builder.CreateInBoundsGEP(GV->getValueType(), Ptr, {Zero, IdxVal}, "arrayidx");
-                    continue; // Προχωράμε στο επόμενο index αν υπάρχει
+            if (!FlatIdx) {
+                FlatIdx = IdxVal;
+            } else {
+                int currentDimSize = (i - 1 < multipliers.size()) ? multipliers[i - 1] : 1;
+                llvm::Value *DimVal = llvm::ConstantInt::get(llvm::Type::getInt64Ty(TheContext), currentDimSize);
+                FlatIdx = Builder.CreateMul(FlatIdx, DimVal, "flat_mul");
+                FlatIdx = Builder.CreateAdd(FlatIdx, IdxVal, "flat_add");
+            }
+        }
+
+        if (FlatIdx) {
+            // --- Partial Indexing ---
+            // Αν δώσαμε λιγότερους δείκτες από τις διαστάσεις (π.χ. inputs[iter] αντί για inputs[iter][0])
+            int expected_indices = multipliers.size() + 1;
+            int provided_indices = exprs.size();
+            
+            if (provided_indices < expected_indices) {
+                int missingMultiplier = 1;
+                for (size_t j = provided_indices - 1; j < multipliers.size(); ++j) {
+                    missingMultiplier *= multipliers[j];
+                }
+                if (missingMultiplier > 1) {
+                    llvm::Value *MissingVal = llvm::ConstantInt::get(llvm::Type::getInt64Ty(TheContext), missingMultiplier);
+                    FlatIdx = Builder.CreateMul(FlatIdx, MissingVal, "partial_idx_mul");
                 }
             }
-            
-            // Για τοπικούς pointers ή παραμέτρους
-            Ptr = Builder.CreateInBoundsGEP(BaseTy, Ptr, {IdxVal}, "arrayidx");
+
+            // --- Τελικό GEP ---
+            if (auto *GV = llvm::dyn_cast<llvm::GlobalVariable>(Ptr)) {
+                if (GV->getValueType()->isArrayTy()) {
+                    llvm::Value *Zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(TheContext), 0);
+                    Ptr = Builder.CreateInBoundsGEP(GV->getValueType(), Ptr, {Zero, FlatIdx}, "arrayidx");
+                } else {
+                    Ptr = Builder.CreateInBoundsGEP(BaseTy, Ptr, {FlatIdx}, "arrayidx");
+                }
+            } else {
+                Ptr = Builder.CreateInBoundsGEP(BaseTy, Ptr, {FlatIdx}, "arrayidx");
+            }
         }
     }
-
     return Ptr;
 }
