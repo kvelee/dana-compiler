@@ -46,7 +46,6 @@ inline std::ostream &operator<<(std::ostream &out, SymbolType t) {
 }
 
 
-// --
 class Type : public AST {
 public:
     // initialize dt to avoid garbage
@@ -90,19 +89,6 @@ protected:
     std::vector<int> dim;
 };
 
-//class FparType : public AST {
-//public:
-//    FparType(DataType t) : tp(t) {}
-//
-//    void printOn(std::ostream &out) const override  {
-//        out<< "FparType ( "<<tp<<" )"; 
-//    }
-//
-//    virtual void add_dim(int n) {};
-//protected:
-//    DataType tp;
-//};
-
 class ArrayType : public Type {
 public:
     // use base Type to store the base type and base.dim for dimensions
@@ -140,14 +126,12 @@ public:
     virtual llvm::Value* codegen() override;
 
 private:
-    // removed duplicate data members
+    /* inherits them from Type */
 };
 
 class Expr : public AST {
 public:
     virtual void printOn(std::ostream &out) const  =0;
-    //Implementation of eval()
-    // virtual int eval() const = 0;
 
     virtual void type_check(SymbolType symbolt){
         sem();
@@ -156,7 +140,7 @@ public:
             if ((symbolt == TYPE_BYTE && symboltype == TYPE_BOOL) ||
                 (symbolt == TYPE_BOOL && symboltype == TYPE_BYTE)) return;
 
-            // --- ΠΡΟΣΘΗΚΗ: Επιτρέπουμε μίξη int <-> byte για τον Calculator ---
+            // --- Επιτρέπουμε μίξη int <-> byte ---
             if ((symbolt == TYPE_INT && symboltype == TYPE_BYTE) ||
                 (symbolt == TYPE_BYTE && symboltype == TYPE_INT)) return;
 
@@ -169,8 +153,6 @@ public:
             
 
             if(symboltype == TYPE_FUNC) return;
-            //std::cout<<"[OUTPUT]\n";
-            //this->printOn(std::cout);
 
             auto sym_to_cstr = [](SymbolType t) -> const char* {
                 switch (t) {
@@ -188,7 +170,7 @@ public:
             };
             std::string msg = std::string("Type mismatch: expected ") + sym_to_cstr(symbolt)
                             + ", got " + sym_to_cstr(symboltype);
-            this->printOn(std::cout);
+            this->printOn(std::cerr);
             
             yyerror(msg.c_str());
             exit(1);
@@ -213,11 +195,6 @@ public:
     std::string getName(){
         return id;
     }
-
-    // virtual int eval() const override {
-    //     SymbolEntry *e = st.lookup(id);
-    //     return e->value;
-    // }
 
     virtual void sem() {
     SymbolEntry *e = st.lookup(id);
@@ -282,7 +259,7 @@ public:
     id_list(*idlst), data_type(dt->getsymbol()) {
         // Check if dt is actually an ArrayType and set array_type accordingly
         array_type = dynamic_cast<ArrayType*>(dt);
-        //if(ref == REF_byte || ref == REF_int) yyerror("Invalid ref type int opt_fpar!\n");
+
         if(opt!=nullptr) next = new Opt_Fpar(*opt);
         else next = nullptr;
     }
@@ -290,7 +267,7 @@ public:
     Opt_Fpar(Id_List *idlst, SymbolType dt, Opt_Fpar *opt = nullptr) : 
     id_list(*idlst), data_type(dt) {
         array_type =nullptr;
-        //if(ref == REF_byte || ref == REF_int) yyerror("Invalid ref type int opt_fpar!\n");
+
         if(opt!=nullptr) next = new Opt_Fpar(*opt);
         else next = nullptr;
     }
@@ -313,17 +290,13 @@ public:
 
     virtual void sem() override {
         
-        //this->printOn(std::cout);
-
         std::vector<Id *> temp = id_list.getIds();
         for(Id *idd : temp) {
             if (array_type != nullptr){
-                //std::cout<<"Inserting "<< idd->getName()<<" as a parameter with type: "<< array_type->getsymbol();
                 st.insert(idd->getName(), TYPE_PARAM, array_type->getsymbol());
 
             }
             else {
-                //std::cout<<"[2] Inserting \'"<< idd->getName()<<"\' as a parameter with type: "<< data_type<<"\n";
                 st.insert(idd->getName(), TYPE_PARAM, data_type);
             }
 
@@ -352,7 +325,7 @@ public:
         return result;
     }
 
-    // Extract array parameters and their dimensions for 2D/3D indexing
+    // Extract array parameters and their dimensions
     std::vector<std::pair<std::string, std::vector<int>>> getArrayParams() const {
         std::vector<std::pair<std::string, std::vector<int>>> result;
         std::vector<Id *> ids = const_cast<Id_List&>(id_list).getIds();
@@ -367,7 +340,7 @@ public:
     }
 
 private:
-    Id_List id_list; // Maybe to change it to pointer
+    Id_List id_list; 
     SymbolType data_type;
     ArrayType *array_type;
     Opt_Fpar *next;
@@ -393,21 +366,14 @@ public:
     virtual llvm::Value* codegen() override;
 
     virtual void sem() override {
-    //if (st.lookup(Id_val->getName()) != nullptr) {
-    //    yyerror(("Function " + Id_val->getName() + " already declared").c_str());
-    //}
-    //std::cout<<"Im into... "<<Id_val->getName()<<"!\n";
+        if (tp != nullptr) {
+            tp->sem();
+            st.insert(Id_val->getName(), TYPE_FUNC, tp->getsymbol());
+        }
+        else st.insert(Id_val->getName(), SymbolType::TYPE_FUNC);
 
-    //if(Id_val->getName()=="main") std::cout<<"Seming the main function\n";
-    
-    if (tp != nullptr) {
-        tp->sem();
-        st.insert(Id_val->getName(), TYPE_FUNC, tp->getsymbol());
+        if (oft != nullptr) oft->sem();
     }
-    else st.insert(Id_val->getName(), SymbolType::TYPE_FUNC);
-
-    if (oft != nullptr) oft->sem();
-}
 
 
     std::string getName(){
@@ -439,9 +405,6 @@ public:
     virtual void printOn(std::ostream &out) const override {
         out << "Stmt Statement";
     }
-    //Implementation of run()/exec()
-
-    //virtual void run() const = 0;
 
     virtual llvm::Value* codegen() override;
 };
@@ -454,12 +417,6 @@ class StmtList : public Stmt {
 
         virtual llvm::Value* codegen() override;
         
-        // Implementation of run() commented out
-        // virtual void run() const {
-        //     for (Stmt *s : stmt_list)
-        //         s->run();
-        // }
-
         void printOn(std::ostream &out) const override {
             out << "Stmt List: (";
             bool first = true;
@@ -513,7 +470,7 @@ public:
     virtual llvm::Value* codegen() override;
 
     virtual void sem() override {
-        // Διαβάζουμε το σημάδι της τρέχουσας συνάρτησης
+        // Διαβάζουμε το (hidden) σημάδι της τρέχουσας συνάρτησης
         SymbolEntry *current_function = st.lookup("$$ret$$");
         if (!current_function) {
             yyerror("Exit statement not inside a function/procedure\n");
@@ -539,11 +496,6 @@ public:
         if(!ID.empty()) out<<"ID: "<<ID;
         loop_stmt_list->printOn(out);
     }
-
-    // run() implementation commented out
-    // virtual void run() const {
-    //     loop_stmt_list->run();
-    // }
 
     virtual llvm::Value* codegen() override;
 
@@ -642,7 +594,6 @@ public:
 private:
     Header *header;
     LocalDefList *localDefList;
-    //std::vector<LocalDef *> localDefList;
     StmtList *stmt_list;
 };
 
@@ -657,9 +608,8 @@ public:
 
     virtual llvm::Value* codegen() override;
 
-    virtual void sem() override {
-        //hd->sem();
-    }
+    virtual void sem() override {}
+
 private:
     Header *hd;
 };
@@ -690,7 +640,7 @@ public:
     virtual llvm::Value* codegen() override;
 
     virtual void sem() override {
-        //std::cout<<"Inside LocalDef\n";
+
         if(func_def) func_def->sem();
         else if (func_decl) func_decl->sem();
         else if (idlst) {
@@ -716,7 +666,7 @@ public:
 
     LocalDefList (LocalDef *ld) {
         local_def_list.push_back(ld);
-    } //?? this is not used (maybe)
+    } 
 
     void printOn(std::ostream &out) const override {
         
@@ -761,7 +711,7 @@ inline void FuncDefBlock::sem() {
 
     st.openScope(); // Άνοιγμα scope για το σώμα της συνάρτησης
     
-    // ΠΡΟΣΘΗΚΗ: Κρυφό σημάδι για να βρίσκουμε ΠΑΝΤΑ το σωστό return type της συνάρτησης!
+    // Κρυφό σημάδι για να βρίσκουμε ΠΑΝΤΑ το σωστό return type της συνάρτησης!
     SymbolType currentRet = header->gettype() ? header->gettype()->getsymbol() : TYPE_FUNC;
     st.insert("$$ret$$", TYPE_FUNC, currentRet);
 
@@ -773,6 +723,7 @@ inline void FuncDefBlock::sem() {
     if (stmt_list) stmt_list->sem();
     st.closeScope();
 }
+
 //=========== Expressions & Stmts ============
 //=== They are mixed cause of dependencies ===
 
@@ -800,12 +751,6 @@ public:
     void append(Expr *e){
         expr_list.push_back(e);
     }
-
-    // virtual int eval() const {
-    //     for (Expr *e : expr_list){
-    //         e->eval();
-    //     }
-    // }
 
     virtual void sem() override{
         for (Expr *e : expr_list){
@@ -854,7 +799,7 @@ public:
 
     if (expr_list) {
         expr_list->sem();
-        // --- ΔΙΟΡΘΩΣΗ: Αν έχουμε αγκύλες [i], ο τύπος γίνεται η βάση του πίνακα ---
+
         if (symboltype == TYPE_REF_INT) symboltype = TYPE_INT;
         else if (symboltype == TYPE_REF_BYTE) symboltype = TYPE_BYTE;
     }
@@ -876,10 +821,6 @@ public:
     void printOn(std::ostream &out) const override {
         out << "Number : "<<numb;
     }
-
-    // virtual int eval() const {
-    //     return numb;
-    // }
 
     virtual llvm::Value* codegen() override;
 
@@ -979,10 +920,6 @@ public:
 
     virtual llvm::Value* codegen() override;
 
-    // virtual int eval() const {
-    //     return flag;
-    // }
-
     virtual void sem() override {
         symboltype=TYPE_BOOL;
     }
@@ -999,11 +936,6 @@ public:
     }
 
     virtual llvm::Value* codegen() override;
-
-    // virtual int eval() const {
-    //     if (op=='&') return left->eval() && right->eval();
-    //     else if (op=='|') return left->eval() || right->eval();
-    // }
 
     virtual void sem() override {
         if (left) left->sem();
@@ -1053,7 +985,7 @@ public:
         SymbolEntry *e = st.lookup(id->getName());
         if (e == nullptr) {
             yyerror(("Function/Procedure " + id->getName() + " not declared").c_str());
-            exit(1); // Μην αφήνεις τον compiler να συνεχίσει!
+            exit(1); 
         }
         if (e->type != TYPE_FUNC){
             yyerror((id->getName() + " is not a function").c_str());
@@ -1061,7 +993,7 @@ public:
         }
         if (list) list->sem();
 
-        // use the function's declared return type (not the TYPE_FUNC tag)
+        // use the function's declared return type
         symboltype = e->return_value;
     }
 
@@ -1088,13 +1020,12 @@ public:
     virtual void sem() override {
         if (!id) {
             yyerror("Procedure call with null id"); 
-            //symboltype = TYPE_INVALID; 
             return; 
         }
         SymbolEntry *e = st.lookup(id->getName());
         if (e == nullptr) {
             yyerror(("Function/Procedure " + id->getName() + " not declared").c_str());
-            exit(1); // Μην αφήνεις τον compiler να συνεχίσει!
+            exit(1);
         }
         if (e->type != TYPE_FUNC)
             yyerror((id->getName() + " is not a function").c_str());
@@ -1195,7 +1126,7 @@ public:
     // Αν οι τύποι είναι ίδιοι, όλα καλά
     if (lt == et) return;
 
-    // Ειδική περίπτωση για τον Calculator: Επιτρέπουμε μίξη byte/int/bool
+    // Επιτρέπουμε μίξη byte/int/bool
     bool leftNum = (lt == TYPE_INT || lt == TYPE_BYTE || lt == TYPE_REF_INT || lt == TYPE_REF_BYTE);
     bool rightNum = (et == TYPE_INT || et == TYPE_BYTE || et == TYPE_REF_INT || et == TYPE_REF_BYTE || et == TYPE_BOOL);
 
@@ -1219,10 +1150,6 @@ public:
     }
 
     virtual llvm::Value* codegen() override;
-
-    // virtual int eval() {
-    //     return !(expr->eval());
-    // }
 
     virtual void sem() override {
         if(expr) expr->type_check(TYPE_BYTE);
@@ -1264,7 +1191,6 @@ public:
             return;
         }
 
-        // κάνε sem() στα παιδιά
         if (left) left->sem();
         if (right) right->sem();
 
@@ -1273,7 +1199,7 @@ public:
 
         // Συγκριτικοί τελεστές μεταξύ αριθμών: <, >, <=, >=, =, <>
         if (oper == "<" || oper == ">" || oper == "<=" || oper == ">=" || oper == "=" || oper == "<>") {
-            // ΔΙΟΡΘΩΣΗ: Επιτρέπουμε σύγκριση οποιουδήποτε αριθμητικού τύπου (μίξη byte και int)
+            
             auto isNum = [](SymbolType t) {
                 return t == TYPE_INT || t == TYPE_BYTE || t == TYPE_REF_INT || t == TYPE_REF_BYTE || t == TYPE_BOOL;
             };
@@ -1288,7 +1214,7 @@ public:
             }
         }
 
-        // Λογικοί τελεστές and/or (απαιτούν boolean)
+        // Λογικοί τελεστές and/or
         if (oper == "and" || oper == "or") {
             left->type_check(TYPE_BOOL);
             right->type_check(TYPE_BOOL);
@@ -1320,10 +1246,6 @@ public:
     }
 
     virtual llvm::Value* codegen() override;
-
-    // virtual int eval(){
-    //     return !(con->eval());
-    // }
 
     virtual void sem() override {
         if(con) con->sem();
@@ -1363,25 +1285,6 @@ public:
         }
     }
 
-    // run() implementation commented out
-    // virtual void run() {
-    //
-    //     if(condition==nullptr && elif_else==nullptr) {
-    //         stmts->run();
-    //     }
-    //     else if(condition!=nullptr && elif_else!=nullptr) {
-    //         if(condition->eval() != 0) {
-    //             stmts->run();
-    //         }
-    //         else if (elif_else!=nullptr){
-    //             elif_else->run();
-    //         }
-    //     }
-    //     else {
-    //         std::cout<<"During run, condition and elif_else aren't the same!\n";
-    //     }
-    // }
-
     virtual void sem() override {
         if(condition) condition->type_check(TYPE_BOOL);
         st.openScope();
@@ -1414,16 +1317,6 @@ public:
             elif_else->printOn(out);
         }
     
-
-    
-    //virtual void run() {
-    //    if(condition->eval() != 0) {
-    //        stmts->run();
-    //    }
-    //    else if (elif_else!=nullptr){
-    //        elif_else->run();
-    //    }
-    //}
 
     virtual void sem() override {
         if(condition) condition -> type_check(TYPE_BOOL);
