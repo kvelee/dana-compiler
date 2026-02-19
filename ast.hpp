@@ -152,12 +152,17 @@ public:
     virtual void type_check(SymbolType symbolt){
         sem();
         if(symboltype!=symbolt) {
-            // allow byte <-> bool interchange
+            // Επιτρέπουμε μίξη byte <-> bool
             if ((symbolt == TYPE_BYTE && symboltype == TYPE_BOOL) ||
                 (symbolt == TYPE_BOOL && symboltype == TYPE_BYTE)) return;
-            // allow ref int <-> int
-            if((symbolt == TYPE_REF_INT && symboltype == TYPE_INT) \
-              || (symbolt == TYPE_INT && symboltype ==TYPE_REF_INT)) return;
+
+            // --- ΠΡΟΣΘΗΚΗ: Επιτρέπουμε μίξη int <-> byte για τον Calculator ---
+            if ((symbolt == TYPE_INT && symboltype == TYPE_BYTE) ||
+                (symbolt == TYPE_BYTE && symboltype == TYPE_INT)) return;
+
+            // Επιτρέπουμε ref types
+            if ((symbolt == TYPE_REF_INT && symboltype == TYPE_INT) || 
+                (symbolt == TYPE_INT && symboltype == TYPE_REF_INT)) return;
 
             if((symbolt == TYPE_REF_BYTE && symboltype == TYPE_BYTE) \
               || (symbolt == TYPE_BYTE && symboltype ==TYPE_REF_BYTE)) return;
@@ -495,20 +500,19 @@ public:
     virtual llvm::Value* codegen() override;
 
     virtual void sem() override {
-        SymbolEntry *current_function = st.function();
+        // Διαβάζουμε το σημάδι της τρέχουσας συνάρτησης
+        SymbolEntry *current_function = st.lookup("$$ret$$");
         if (!current_function) {
-            yyerror("Exit statement not inside a functiontion/procedure\n");
+            yyerror("Exit statement not inside a function/procedure\n");
             return;
         }
 
-        // Αν έχει τύπο επιστροφής -> λάθος
-        if (current_function->return_value != TYPE_FUNC && current_function->return_value!=LOOP) {
-            std::cout<<current_function->name<<"<<<<<<<<<<\n";
-            st.printSymbolTable();
-            sleep(5);
+        // Αν η συνάρτηση περιμένει τιμή, το σκέτο exit απαγορεύεται
+        if (current_function->return_value != TYPE_FUNC && current_function->return_value != LOOP) {
             yyerror("Exit statement not allowed in functions with return type\n");
             return;
-        }    }
+        }    
+    }
 };
 
 class LoopBlock : public Stmt {
@@ -733,21 +737,29 @@ inline void FuncDefBlock::printOn(std::ostream &out) const {
 }
 
 inline void FuncDefBlock::sem() {
-    // Debug only for specific function name
-    //bool debug_is_digit = (header && header->getName() == "is_digit");
-    //if (debug_is_digit) std::cerr << "[DEBUG] Entering scope of is_digit\n";
+    if (!st.hasScope()) { 
+        st.openScope(); 
+    }
 
-    if(st.hasScope()) st.insert(header->getName(),SymbolType::TYPE_FUNC);
+    if (header) {
+        SymbolType ret = header->gettype() ? header->gettype()->getsymbol() : TYPE_FUNC;
+        st.insert(header->getName(), TYPE_FUNC, ret);
+    }
 
-    st.openScope();
-    if (header) header->sem();
+    st.openScope(); // Άνοιγμα scope για το σώμα της συνάρτησης
+    
+    // ΠΡΟΣΘΗΚΗ: Κρυφό σημάδι για να βρίσκουμε ΠΑΝΤΑ το σωστό return type της συνάρτησης!
+    SymbolType currentRet = header->gettype() ? header->gettype()->getsymbol() : TYPE_FUNC;
+    st.insert("$$ret$$", TYPE_FUNC, currentRet);
+
+    if (header && header->getOpt_Fpar() != nullptr) {
+        header->getOpt_Fpar()->sem();
+    }
+    
     if (localDefList) localDefList->sem();
     if (stmt_list) stmt_list->sem();
     st.closeScope();
-
-    //if (debug_is_digit) std::cerr << "[DEBUG] Exiting scope of is_digit\n";
 }
-
 //=========== Expressions & Stmts ============
 //=== They are mixed cause of dependencies ===
 
@@ -820,14 +832,20 @@ public:
     virtual llvm::Value* codegen() override;
 
     virtual void sem() override {
-        if (id) {
+    if (id) {
         id->sem();
-        symboltype=id->getsymbol();
-        }
-        else symboltype = TYPE_INVALID;
-        if (expr_list) expr_list->sem();
-
+        symboltype = id->getsymbol();
+    } else {
+        symboltype = TYPE_INVALID;
     }
+
+    if (expr_list) {
+        expr_list->sem();
+        // --- ΔΙΟΡΘΩΣΗ: Αν έχουμε αγκύλες [i], ο τύπος γίνεται η βάση του πίνακα ---
+        if (symboltype == TYPE_REF_INT) symboltype = TYPE_INT;
+        else if (symboltype == TYPE_REF_BYTE) symboltype = TYPE_BYTE;
+    }
+}
 
     std::string getIdName() { return id ? id->getName() : ""; }
 
@@ -908,53 +926,29 @@ public:
 
     virtual llvm::Value* codegen() override;
 
-    // virtual int eval() const {
-    //     switch (op)
-    //     {
-    //     case '+':
-    //     return left->eval() + right->eval();
-    //     case '-':
-    //     return left->eval() - right->eval();
-    //     case '*':
-    //     return left->eval() * right->eval();
-    //     case '/':
-    //     return left->eval() / right->eval();
-    //     case '%':
-    //     return left->eval() % right->eval();
-    //     default:
-    //     std::cerr << "Unknown operator: " << op << std::endl;
-    //     return 0;
-    //     }
-    // }
 
     virtual void sem() override {
-        if (left) left->sem();
-        if (right) right->sem();
+    if (left) left->sem();
+    if (right) right->sem();
 
+    SymbolType l = left ? left->getsymbol() : TYPE_INVALID;
+    SymbolType r = right ? right->getsymbol() : TYPE_INVALID;
 
-        SymbolType l = left ? (left->getsymbol()) : TYPE_INVALID;
-        SymbolType r = right ? (right->getsymbol()) : TYPE_INVALID;
+    // Έλεγχος αν και τα δύο είναι αριθμητικά (int, byte, ref int, ref byte)
+    auto isNumeric = [](SymbolType t) {
+        return t == TYPE_INT || t == TYPE_BYTE || t == TYPE_REF_INT || t == TYPE_REF_BYTE;
+    };
 
-        // Both operands must be of the same numeric type: either int or byte
-        if ((l == TYPE_INT || l == TYPE_REF_INT) && (r == TYPE_INT || r == TYPE_REF_INT)) {
+    if (isNumeric(l) && isNumeric(r)) {
+        // Αν ένας από τους δύο είναι int, το αποτέλεσμα προάγεται σε int
+        if (l == TYPE_INT || l == TYPE_REF_INT || r == TYPE_INT || r == TYPE_REF_INT)
             symboltype = TYPE_INT;
-            return;
-        }
-        if ((l == TYPE_BYTE || l == TYPE_REF_BYTE) && (r == TYPE_BYTE || r == TYPE_REF_BYTE)) {
+        else
             symboltype = TYPE_BYTE;
-            return;
-        }
-
-        yyerror((std::string("Type mismatch in BinOp ") + op + ": operands must be both int or both byte").c_str());
-        left->printOn(std::cout);
-        right->printOn(std::cout);  
-        st.printSymbolTable();
-        std::cout<<l<< " "<<r<<"\n";
-        
-        exit(0);
-        symboltype = TYPE_INVALID;
+        return;
     }
-
+    yyerror("Type mismatch in BinOp: operands must be numeric");
+}
 private:
     Expr *left;
     char op;
@@ -1054,11 +1048,6 @@ public:
         symboltype = e->return_value;
     }
 
-    virtual SymbolType getsymbol() override {
-        //std::cerr<<"[DEBUG] I'm into "<< id->getName() <<" func, returning: "<<id->getsymbol()<<"<<<<<<<<<<<\n";
-        return id->getsymbol();
-    }
-
 private:
     Id *id;
     ExprList *list;
@@ -1115,8 +1104,14 @@ public:
 
     //e must have the same type that the block/function returns
     virtual void sem() override {
-        SymbolEntry *function_entry = st.function(); //get the most recent function
-        if(function_entry!=nullptr) e->type_check(function_entry->return_value);
+        SymbolEntry *function_entry = st.lookup("$$ret$$"); 
+        if(function_entry != nullptr) {
+            if (e) {
+                e->type_check(function_entry->return_value);
+            } else if (function_entry->return_value != TYPE_FUNC) {
+                yyerror("Return value missing in function");
+            }
+        }
     }
 private:
     Expr *e;
@@ -1171,16 +1166,23 @@ public:
     virtual llvm::Value* codegen() override;
 
     virtual void sem() override {
-        if(l) l->sem();
-        if(e) e->sem();
-        // x is int
-        // x := false
-        if((l->getsymbol() == TYPE_BYTE || l->getsymbol() == TYPE_INT) && e->getsymbol() == TYPE_BOOL) return;
-        // y is bool
-        // y := 13  # then y=true
-        if((e->getsymbol() == TYPE_BYTE || e->getsymbol() == TYPE_INT) && l->getsymbol() == TYPE_BOOL) return;
-        e->type_check(l->getsymbol());
-    }
+    if(l) l->sem();
+    if(e) e->sem();
+    
+    SymbolType lt = l->getsymbol();
+    SymbolType et = e->getsymbol();
+
+    // Αν οι τύποι είναι ίδιοι, όλα καλά
+    if (lt == et) return;
+
+    // Ειδική περίπτωση για τον Calculator: Επιτρέπουμε μίξη byte/int/bool
+    bool leftNum = (lt == TYPE_INT || lt == TYPE_BYTE || lt == TYPE_REF_INT || lt == TYPE_REF_BYTE);
+    bool rightNum = (et == TYPE_INT || et == TYPE_BYTE || et == TYPE_REF_INT || et == TYPE_REF_BYTE || et == TYPE_BOOL);
+
+    if (leftNum && rightNum) return; // Επιτρέπουμε την ανάθεση μεταξύ τους
+
+    e->type_check(lt);
+}
 private:
     Lvalue *l;
     Expr *e;
@@ -1233,26 +1235,7 @@ public:
             right->printOn(out);
             out << ")";}
         }
-    
-    // virtual int eval() const {
-    //     if (single != nullptr){
-    //         single->eval();
-    //     }
-    //     else {
-    //         if (oper == ">") return left->eval() > right->eval();
-    //         else if (oper == "<") return left->eval() < right->eval();
-    //         else if (oper == ">=") return left->eval() >= right->eval();
-    //         else if (oper == "<=") return left->eval() <= right->eval();
-    //         else if (oper == "=") return left->eval() == right->eval();
-    //         else if (oper == "<>") return left->eval() != right->eval();
-    //         else if (oper == "and") return left->eval() && right->eval();
-    //         else if (oper == "or") return left->eval() || right->eval();
-    //         else {
-    //             std::cerr << "Unknown operator: " << oper << std::endl;
-    //             return 0;
-    //         }
-    //     }
-    // }
+
 
     virtual void sem() override {
         if (single != nullptr) {
@@ -1270,16 +1253,16 @@ public:
 
         // Συγκριτικοί τελεστές μεταξύ αριθμών: <, >, <=, >=, =, <>
         if (oper == "<" || oper == ">" || oper == "<=" || oper == ">=" || oper == "=" || oper == "<>") {
-            // Απαιτούμε ίδιο αριθμητικό τύπο: είτε και τα δύο int είτε και τα δύο byte
-         \
-            if (((lt == TYPE_INT || lt==TYPE_REF_INT) && (rt == TYPE_INT || rt==TYPE_REF_BYTE || rt==TYPE_BOOL)) \
-             || ((lt == TYPE_BYTE || lt==TYPE_REF_BYTE) && ((rt == TYPE_BYTE) || rt==TYPE_REF_BYTE || rt==TYPE_BOOL))) {
+            // ΔΙΟΡΘΩΣΗ: Επιτρέπουμε σύγκριση οποιουδήποτε αριθμητικού τύπου (μίξη byte και int)
+            auto isNum = [](SymbolType t) {
+                return t == TYPE_INT || t == TYPE_BYTE || t == TYPE_REF_INT || t == TYPE_REF_BYTE || t == TYPE_BOOL;
+            };
+
+            if (isNum(lt) && isNum(rt)) {
                 symboltype = TYPE_BOOL;
                 return;
             } else {
-                //st.printSymbolTable();
-                //sleep(5);
-                yyerror((std::string("Type mismatch in numeric comparison '") + oper + "': operands must be both int or both byte").c_str());
+                yyerror("Type mismatch in comparison: operands must be numeric");
                 symboltype = TYPE_INVALID;
                 return;
             }

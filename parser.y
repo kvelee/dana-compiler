@@ -371,6 +371,7 @@ int main() {
     init_indent_stack();
     initializeLLVM();
     
+    st.openScope();
     int result = yyparse();
 
     if (result == 0) {
