@@ -381,7 +381,7 @@ int main() {
             programRoot->codegen();
             
             if(TheModule) 
-                TheModule->print(llvm::errs(),nullptr);
+                TheModule->print(llvm::outs(),nullptr);
         }
         else {
             printf("\033[1;31m programRoot codegen failed.\033[0m\n");
