@@ -107,8 +107,6 @@ public:
     Scope() {}  
 
     SymbolEntry *lookup(std::string s){
-        //std::cout<<"Inside locals, looking for "<<s<<"\n";//<<"==\n"<<locals[s].type<<"\n";
-        //sleep(1);
         if(locals.find(s)==locals.end()) return nullptr;
         return &locals[s];
     }
@@ -147,17 +145,10 @@ public:
 
     SymbolEntry *lookup(std::string s) {
         
-        //if(scopes.empty()) return nullptr;
         
         if(s=="writeString" || s=="writeChar" || s=="readString") return &BUILTIN_FUNC_BYTE;
         if(s=="readInteger" || s=="writeInteger" || s=="extend" \
         || s=="strlen" || s=="strcmp") return &BUILTIN_FUNC_INT;
-
-        //printSymbolTable();
-        //std::cout << "\nPress Enter to continue..." << std::flush;
-        //std::ifstream tty("/dev/tty");
-        //std::string dummy;
-        //std::getline(tty, dummy);
 
         for (auto i = scopes.rbegin(); i!=scopes.rend(); ++i){
             SymbolEntry *e = i->lookup(s);
@@ -243,7 +234,6 @@ public:
 
 
     void insert(std::string s, SymbolType st) {
-        //std::cout<<"Inserting "<<s<<"!\n";
         scopes.back().insert(s,st);
     }
     void insert(std::string s, SymbolType stt, SymbolType rv){
@@ -260,7 +250,6 @@ public:
     }
 
     bool insideLoop() {
-        //if (scopes.empty()) printSymbolTable();
         
         for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
             const auto locals = it->getlocals();
@@ -272,7 +261,6 @@ public:
     }
 
     SymbolEntry *function(){
-        // Get the most recent function
         if (scopes.empty()) return nullptr;
 
         for (auto i = scopes.rbegin(); i!=scopes.rend(); ++i){
