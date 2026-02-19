@@ -123,8 +123,8 @@ FuncDefBlock *programRoot = nullptr;
     AST *ast;
     Header *hd;
     SymbolType type;
-    Type *tp;      //-- Into one, BETTER IMPLEMENTATION!
-    ArrayType *atp;//--
+    Type *tp;      
+    ArrayType *atp;
     Id_List *idlst;
     Opt_Fpar *optfp;
     StmtList *st_list;
@@ -191,7 +191,7 @@ FuncDefBlock *programRoot = nullptr;
 
 %%
 program:
-    func_def { //std::cout<< "AST: " << *$1 <<std::endl; 
+    func_def { 
         $1->sem();
         programRoot = $1;
     }
@@ -288,16 +288,7 @@ stmt:
 if_stmts:
    "if" cond ':' stmt_list auto_end opt_elif_else {
         $$ = new IfBlock($2,$4,$6);
-}
-
-/*|  "if" cond ':' stmt_list auto_end "else" ':' stmt_list auto_end { 
-//        
-//        $$ = new IfBlock($2,$4,$8);
-//    }
-//|   "if" cond ':' stmt_list auto_end "elif" cond ':' stmt_list auto_end opt_elif_else {
-       $$ = new IfBlock($2,$4,$7,$9,$11);}
-*/ 
-;
+};
 
 opt_elif_else:
       /* empty */ { $$ = nullptr;}
@@ -418,19 +409,26 @@ int main(int argc, char** argv) {
     if (TheModule) {
         // Optimization
         if (optimize) {
+            // Analysis Managers για την ανάλυση του κώδικα
             llvm::LoopAnalysisManager LAM;
             llvm::FunctionAnalysisManager FAM;
             llvm::CGSCCAnalysisManager CGAM;
             llvm::ModuleAnalysisManager MAM;
-            llvm::PassBuilder PB;
 
+            // Pass Builder για την δημιουργία του pipeline των passes και καταχώρηση των managers
+            llvm::PassBuilder PB;
             PB.registerModuleAnalyses(MAM);
             PB.registerCGSCCAnalyses(CGAM);
             PB.registerFunctionAnalyses(FAM);
             PB.registerLoopAnalyses(LAM);
+
+            // Σύνδεση των managers
             PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
+            // Δημιουργία ενός προκαθορισμένου pipeline βελτιστοποιήσεων επιπέδου O2.
             llvm::ModulePassManager MPM = PB.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::O2);
+            
+            // Εκτέλεση των βελτιστοποιήσεων στο IR
             MPM.run(*TheModule, MAM);
         }
 
