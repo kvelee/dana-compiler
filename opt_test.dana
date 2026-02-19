@@ -1,0 +1,12 @@
+def main
+    var x is int
+    # Constant folding: Το 10+5 πρέπει να γίνει 15
+    x := 10 + 5 
+    
+    if true:
+        writeString: "This is always true\n"
+    else:
+        # Dead code: Αυτό δεν πρέπει να υπάρχει καν στο optimized IR
+        writeString: "This is dead code\n"
+    
+    writeInteger: x
