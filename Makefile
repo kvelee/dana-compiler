@@ -2,7 +2,7 @@
 
 LLVM_CONFIG=llvm-config-18
 
-CXX=g++ `llvm-config-18 --cxxflags`
+CXX=g++
 CXXFLAGS=-Wall -g -std=c++17 `$(LLVM_CONFIG) --cxxflags`
 LDFLAGS=`$(LLVM_CONFIG) --ldflags --system-libs --libs core`
 
@@ -24,22 +24,8 @@ codegen.o: codegen.cpp ast.hpp symbol.hpp
 danac: lexer.o parser.o codegen.o
 	$(CXX) $(CXXFLAGS) -o danac lexer.o parser.o codegen.o $(LDFLAGS)
 
-test:
-	@echo "Running tests on first 5 .dana files in ../Dana/ directory..."
-	@i=1; \
-	for file in ../Dana/*.dana; do \
-		if [ -f "$$file" ]; then \
-				echo "[$$i] Testing: $$file"; \
-				./danac < "$$file"; \
-				i=$$((i+1));\
-				echo "===============================";\
-			else \
-				break; \
-			fi; \
-	done
-
 clean:
-	$(RM) lexer.cpp parser.cpp parser.hpp parser.output *.o *.ll *.exe *.output
+	$(RM) lexer.cpp parser.cpp parser.hpp parser.output *.o *.ll *.exe *.output *.imm *.asm a.out
 
 distclean: clean
 	$(RM) danac

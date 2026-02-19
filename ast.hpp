@@ -191,8 +191,7 @@ public:
             this->printOn(std::cout);
             
             yyerror(msg.c_str());
-            exit(0);
-            //sleep(10);
+            exit(1);
         }
     }
 
@@ -1052,9 +1051,13 @@ public:
             return; 
         }   
         SymbolEntry *e = st.lookup(id->getName());
-       // if (e==nullptr) {yyerror("No scopes?"); symboltype=TYPE_INVALID; return;}
+        if (e == nullptr) {
+            yyerror(("Function/Procedure " + id->getName() + " not declared").c_str());
+            exit(1); // Μην αφήνεις τον compiler να συνεχίσει!
+        }
         if (e->type != TYPE_FUNC){
             yyerror((id->getName() + " is not a function").c_str());
+            exit(1);
         }
         if (list) list->sem();
 
@@ -1089,7 +1092,10 @@ public:
             return; 
         }
         SymbolEntry *e = st.lookup(id->getName());
-        if (e==nullptr) {return;}
+        if (e == nullptr) {
+            yyerror(("Function/Procedure " + id->getName() + " not declared").c_str());
+            exit(1); // Μην αφήνεις τον compiler να συνεχίσει!
+        }
         if (e->type != TYPE_FUNC)
             yyerror((id->getName() + " is not a function").c_str());
 

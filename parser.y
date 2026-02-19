@@ -6,14 +6,19 @@
 #include <cstring>
 #include <string>
 #include "ast.hpp"
-
+#include "built_ins.hpp"
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/IRBuilder.h>
 #include <memory>
+#include <unistd.h>
+#include <fstream>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/Support/raw_ostream.h>
 
 extern int yylineno;
 extern char* yytext;
+extern FILE *yyin;
 
 extern void init_indent_stack();
 
@@ -367,32 +372,88 @@ void yyerror(const char *msg) {
 }
 
 
-int main() {
+int main(int argc, char** argv) {
+    int opt;
+    bool print_imm = false;
+    bool print_asm = false;
+    std::string output_name = "a.out";
+    
+    // 1. Διάβασμα flags
+    optind = 1;
+    while ((opt = getopt(argc, argv, "ifo:")) != -1) {
+        switch (opt) {
+            case 'i': print_imm = true; break;
+            case 'f': print_asm = true; break;
+            case 'o': output_name = optarg; break;
+            default: return 1;
+        }
+    }
+
+    // 2. Διαχείριση Εισόδου
+    std::string input_file_name = "";
+    if (optind < argc) {
+        input_file_name = argv[optind];
+        if (!(yyin = fopen(input_file_name.c_str(), "r"))) {
+            perror(input_file_name.c_str());
+            return 1;
+        }
+    } else {
+        yyin = stdin; // Fallback για stdin
+    }
+
     init_indent_stack();
     initializeLLVM();
-    
     st.openScope();
-    int result = yyparse();
 
-    if (result == 0) {
-        //printf("\033[1;32mSuccess.\033[0m\n");
-
-        if(programRoot) {
-
-            programRoot->codegen();
-            
-            if(TheModule) 
-                TheModule->print(llvm::outs(),nullptr);
-        }
-        else {
-            printf("\033[1;31m programRoot codegen failed.\033[0m\n");
-        }
-    }
-    else {
-        printf("\033[1;31mParsing failed.\033[0m\n");
-        sleep(10);
-    }
+    populate_builtins(st);
     
+    if (yyparse() != 0 || !programRoot) {
+        free_guide_stack();
+        return 1;
+    }
+
+    programRoot->codegen();
+
+    if (TheModule) {
+        if (print_imm) {
+            TheModule->print(llvm::outs(), nullptr);
+        } 
+        else if (print_asm) {
+            std::error_code EC;
+            {
+                llvm::raw_fd_ostream tmp("temp.ll", EC, llvm::sys::fs::OF_None);
+                TheModule->print(tmp, nullptr);
+            } // Το αρχείο κλείνει αυτόματα εδώ (flush)
+            if (system("llc-18 temp.ll -o -") != 0) return 1;
+            system("rm temp.ll");
+        } 
+        else {
+            // Υπολογισμός ονόματος βάσης
+            std::string baseName = "output";
+            if (!input_file_name.empty()) {
+                size_t lastDot = input_file_name.find_last_of(".");
+                size_t lastSlash = input_file_name.find_last_of("/");
+                size_t end = (lastDot == std::string::npos) ? input_file_name.length() : lastDot;
+                baseName = input_file_name.substr(0, end);
+            }
+
+            // α. Δημιουργία .imm
+            {
+                std::error_code EC;
+                llvm::raw_fd_ostream dest_imm(baseName + ".imm", EC, llvm::sys::fs::OF_None);
+                TheModule->print(dest_imm, nullptr);
+            } // Εδώ το αρχείο .imm γράφεται οριστικά στον δίσκο
+
+            // β. Δημιουργία .asm μέσω llc
+            std::string cmd_asm = "llc-18 " + baseName + ".imm -o " + baseName + ".asm";
+            if (system(cmd_asm.c_str()) != 0) return 1;
+
+            // γ. Linking με lib.c (πρέπει να υπάρχει στον κατάλογο)
+            std::string cmd_exe = "clang-18 -no-pie -fno-builtin lib.c " + baseName + ".asm -o " + output_name;
+            if (system(cmd_exe.c_str()) != 0) return 1;
+        }
+    }
+
     free_guide_stack();
-    return result;
+    return 0; // Επιτυχία
 }
