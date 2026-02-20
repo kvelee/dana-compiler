@@ -73,8 +73,29 @@ D [0-9]
 "true" { return T_true; } 
 "var" { return T_var; }
 
-\'(\\[ntr0\\\'\"]|{L}|{D}|\+|\*|\-|\/|.|\ )\' { yylval.cnst= yytext[1];  return T_const; }
-\'\\x[0-9a-fA-F]{2}\' { yylval.str = new std::string(yytext); return T_const; }
+\'(\\[ntr0\\\'\"]|{L}|{D}|\+|\*|\-|\/|.|\ )\' {
+
+    if (yytext[1] == '\\') {
+        switch (yytext[2]) {
+            case 'n': yylval.cnst = 10; break;
+            case 't': yylval.cnst = 9; break;
+            case 'r': yylval.cnst = 13; break;
+            case '0': yylval.cnst = 0; break;
+            case '\\': yylval.cnst = '\\'; break;
+            case '\'': yylval.cnst = '\''; break;
+            case '\"': yylval.cnst = '\"'; break;
+        }
+    } else {
+        yylval.cnst = yytext[1];
+    }
+    return T_const; 
+}
+
+\'\\x[0-9a-fA-F]{2}\' {
+    // Improved not to send string but the '\xnn' ==> nn ascii car
+    yylval.cnst = (char)strtol(yytext + 3, NULL, 16); 
+    return T_const;
+}
 
 ":=" { return T_sep; }
 [\(\)\[\]\,\:] { return yytext[0]; }
@@ -119,7 +140,9 @@ D [0-9]
 }
                     
 \"([^\"\n]|\\.)*\" { 
-    yylval.str = new std::string(yytext + 1, yyleng - 2); // Create a new std::string without quotes
+    std::string s(yytext + 1, yyleng - 2);
+
+    yylval.str = new std::string(unescapeString(s));
     return T_string;
 }
 

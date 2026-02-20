@@ -123,31 +123,9 @@ void initializeLLVM() {
     llvm::Function::Create(strCopyFT, llvm::Function::ExternalLinkage, "strcat", TheModule.get());
 }
 
-// Βοηθητική συνάρτηση για μετατροπή escape sequences
-std::string unescapeString(const std::string& input) {
-    std::string result;
-    for (size_t i = 0; i < input.length(); ++i) {
-        // Αν βρούμε backslash και υπάρχει επόμενος χαρακτήρας
-        if (input[i] == '\\' && i + 1 < input.length()) {
-            switch (input[i+1]) {
-                case 'n': result += '\n'; break; // Αλλαγή γραμμής
-                case 't': result += '\t'; break; // Tab
-                case 'r': result += '\r'; break; // Carriage return
-                case '0': result += '\0'; break; // Null terminator
-                case '\\': result += '\\'; break; // Απλό backslash
-                default: 
-                    result += '\\'; 
-                    result += input[i+1]; 
-                    break;
-            }
-            i++;
-        } else {
-            result += input[i];
-        }
-    }
-    return result;
-}
-// ==========================================
+
+// unescapeString moved to --> parser.y / lexer.hpp
+
 // Code Generation Implementations
 // ==========================================
 
@@ -159,24 +137,7 @@ llvm::Value* Number::codegen(){
 
 // --- CharConst (Byte Constants) ---
 llvm::Value* CharConst::codegen() {
-    uint8_t val = (uint8_t)character;
-
-    // Αν ο Lexer έστειλε ASCII 92 (backslash), σημαίνει ότι διάβασε το '\' 
-    // από το '\n' και έχασε το 'n'. Το μετατρέπουμε χειροκίνητα σε 10 (newline).
-    if (val == 92) {
-        val = 10; 
-    } 
-    // Αν ο Lexer έστειλε το γράμμα 'n' (ASCII 110) ενώ περιμέναμε escape sequence
-    else if (val == 'n') {
-        val = 10;
-    }
-    // Αντίστοιχη προσθήκη για tab
-    else if (val == 't') {
-        val = 9;
-    }
-
-    // Dana bytes are 8-bit
-    return llvm::ConstantInt::get(TheContext, llvm::APInt(8, val, false));
+    return llvm::ConstantInt::get(llvm::Type::getInt8Ty(TheContext), (uint8_t)character, false);
 }
 
 // --- StmtList ---
@@ -1009,8 +970,7 @@ llvm::Value* Opt_Elif_Else::codegen() {
 // --- Lvalue GEP  ---
 llvm::Value* Lvalue::getPointer() {
     if (!str.empty()) {
-        std::string cleanStr = unescapeString(str);
-        return Builder.CreateGlobalStringPtr(cleanStr);
+        return Builder.CreateGlobalStringPtr(str);
     }
     if (!id) return nullptr;
 

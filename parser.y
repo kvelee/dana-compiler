@@ -365,6 +365,35 @@ void yyerror(const char *msg) {
 }
 
 
+std::string unescapeString(const std::string& input) {
+    std::string result;
+    for (size_t i = 0; i < input.length(); ++i) {
+        if (input[i] == '\\' && i + 1 < input.length()) {
+            switch (input[i+1]) {
+                case 'n':  result += '\n'; i++; break;
+                case 't':  result += '\t'; i++; break;
+                case 'r':  result += '\r'; i++; break;
+                case '0':  result += '\0'; i++; break;
+                case '\\': result += '\\'; i++; break;
+                case '\'': result += '\''; i++; break;
+                case '\"': result += '\"'; i++; break;
+                case 'x': 
+                    if (i + 3 < input.length()) {
+                        std::string hex = input.substr(i + 2, 2);
+                        result += (char)std::stoi(hex, nullptr, 16);
+                        i += 3;
+                    }
+                    break;
+                default: result += input[i+1]; i++; break;
+            }
+        } else {
+            result += input[i];
+        }
+    }
+    return result;
+}
+
+
 int main(int argc, char** argv) {
     int opt;
     bool print_imm = false;
