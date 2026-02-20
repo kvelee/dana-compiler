@@ -871,18 +871,61 @@ llvm::Value* NotExpr::codegen() {
 
 llvm::Value* Cond::codegen() {
     if (single != nullptr) { 
-        return single->codegen(); 
+        llvm::Value *val = single->codegen();
+        if (!val) return nullptr;
+        
+        if (val->getType()->isIntegerTy(1)) {
+            return val;
+        } else {
+            llvm::Constant *Zero = llvm::ConstantInt::get(val->getType(), 0);
+            return Builder.CreateICmpNE(val, Zero, "cond_single");
+        }
+    }
+
+    if (oper == "and" || oper == "or") {
+        llvm::Value *lhsVal = left->codegen(); 
+        if (!lhsVal) return nullptr; 
+
+        llvm::Function *TheFunction = Builder.GetInsertBlock()->getParent();
+        
+        llvm::BasicBlock *LhsBB = Builder.GetInsertBlock();
+        
+        llvm::BasicBlock *EvalRightBB = llvm::BasicBlock::Create(TheContext, "eval_right", TheFunction);
+        llvm::BasicBlock *MergeBB = llvm::BasicBlock::Create(TheContext, "merge_cond");
+
+        if (oper == "and") {
+            Builder.CreateCondBr(lhsVal, EvalRightBB, MergeBB);
+        } else {
+            Builder.CreateCondBr(lhsVal, MergeBB, EvalRightBB);
+        }
+
+        Builder.SetInsertPoint(EvalRightBB);
+        llvm::Value *rhsVal = right->codegen();
+        if (!rhsVal) return nullptr;
+        
+        llvm::BasicBlock *RhsBB = Builder.GetInsertBlock(); 
+        Builder.CreateBr(MergeBB);
+
+        TheFunction->insert(TheFunction->end(), MergeBB);
+        Builder.SetInsertPoint(MergeBB);
+        
+        llvm::PHINode *PN = Builder.CreatePHI(llvm::Type::getInt1Ty(TheContext), 2, "cond_res");
+
+        if (oper == "and") {
+            PN->addIncoming(llvm::ConstantInt::getFalse(TheContext), LhsBB);
+            PN->addIncoming(rhsVal, RhsBB);
+        } else {
+            PN->addIncoming(llvm::ConstantInt::getTrue(TheContext), LhsBB);
+            PN->addIncoming(rhsVal, RhsBB);
+        }
+
+        return PN;
     }
 
     llvm::Value *lhsVal = left->codegen(); 
     llvm::Value *rhsVal = right->codegen(); 
     
     if (!lhsVal || !rhsVal) return nullptr; 
-
-    if (lhsVal->getType()->isPointerTy() || rhsVal->getType()->isPointerTy()) { 
-        std::cerr << "Error: Cond operands must be loaded values, not pointers.\n"; 
-        return nullptr; 
-    }
 
     if (lhsVal->getType() != rhsVal->getType()) { 
         if (lhsVal->getType()->getIntegerBitWidth() < rhsVal->getType()->getIntegerBitWidth()) { 
@@ -904,16 +947,11 @@ llvm::Value* Cond::codegen() {
         return Builder.CreateICmpEQ(lhsVal, rhsVal, "cmp_eq"); 
     } else if (oper == "<>") { 
         return Builder.CreateICmpNE(lhsVal, rhsVal, "cmp_ne"); 
-    } else if (oper == "and") { 
-        return Builder.CreateAnd(lhsVal, rhsVal, "and_res"); 
-    } else if (oper == "or") { 
-        return Builder.CreateOr(lhsVal, rhsVal, "or_res"); 
     } else { 
         std::cerr << "Unknown condition operator: " << oper << "\n"; 
         return nullptr; 
     }
 }
-
 llvm::Value* NotCond::codegen() {
     if (!con) return nullptr;
     llvm::Value *condVal = con->codegen();
