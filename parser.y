@@ -361,7 +361,7 @@ expr_list:
 %%
 
 void yyerror(const char *msg) {
-    fprintf(stderr, "Error: %s at line %d, near '%s'\n", msg, yylineno, yytext);
+    fprintf(stderr, "Error: %s\n", msg);
 }
 
 

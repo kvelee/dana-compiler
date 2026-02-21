@@ -4,7 +4,6 @@ parser_test/
 *.pdf
 *.sh
 *.dana
-.gitignore
 
 danac2_debug
 danac_debug

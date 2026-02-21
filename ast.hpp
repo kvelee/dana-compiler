@@ -71,10 +71,12 @@ public:
 
     virtual void sem() override {
 
-    for (int d : dim) {
-        if (d < 0)
-            yyerror("Invalid array dimension: must be positive");
-    }
+        for (int d : dim) {
+            if (d <= 0) {
+                yyerror("Semantic Error: Array dimension must be a positive integer (greater than 0).");
+                exit(1);
+            }
+        }
     }   
 
     // make virtual so derived ArrayType resolves correctly
@@ -112,8 +114,10 @@ public:
         yyerror("Invalid base type for array (cannot be ref type)");
 
     for (int d : dim) {
-        if (d <= 0)
-            yyerror("Invalid array dimension: must be positive");
+        if (d <= 0) {
+            yyerror("Semantic Error: Array dimension must be a positive integer.");
+            exit(1);
+        }
     }
 
     }
@@ -658,6 +662,9 @@ public:
         if(func_def) func_def->sem();
         else if (func_decl) func_decl->sem();
         else if (idlst) {
+
+            if (tp) tp->sem();
+
             std::vector<Id*> temp = idlst->getIds();
             for (Id* id : temp){
                 SymbolType t = tp->getsymbol();
@@ -715,6 +722,21 @@ inline void FuncDefBlock::printOn(std::ostream &out) const {
 }
 
 inline void FuncDefBlock::sem() {
+
+    // Added some checks for the main function 
+    bool isMain = !st.hasScope();
+    
+    if (isMain) {
+        if (header->gettype() != nullptr) {
+            yyerror("Semantic Error: The main program cannot return a result.");
+            exit(1);
+        }
+        if (header->getOpt_Fpar() != nullptr) {
+            yyerror("Semantic Error: The main program cannot accept parameters.");
+            exit(1);
+        }
+    }
+
     if (!st.hasScope()) { 
         st.openScope(); 
     }
@@ -811,10 +833,13 @@ public:
     }
 
     virtual llvm::Value* codegen() override;
-
+    
     virtual void sem() override {
+        SymbolEntry *e = nullptr;
+
         if (id) {
             id->sem();
+            e = st.lookup(id->getName());
             symboltype = id->getsymbol();
         } else if (!str.empty()) {
             symboltype = TYPE_REF_BYTE;
@@ -823,13 +848,28 @@ public:
         }
 
         if (expr_list) {
+            // 1. Έλεγχος αν η μεταβλητή είναι όντως πίνακας
+            if (e != nullptr && !e->is_array && str.empty()) {
+                yyerror(("Semantic Error: '" + id->getName() + "' is not an array.").c_str());
+                exit(1);
+            }
+
             expr_list->sem();
 
+            // 2. Έλεγχος των array indexes
+            for (Expr* indexExpr : expr_list->getExprs()) {
+                SymbolType it = indexExpr->getsymbol();
+                if (it != TYPE_INT && it != TYPE_BYTE && it != TYPE_REF_INT && it != TYPE_REF_BYTE) {
+                    yyerror("Semantic Error: Array index must be an integer or byte.");
+                    exit(1);
+                }
+            }
+
+            // 3. Αποτίμηση του τελικού τύπου
             if (symboltype == TYPE_REF_INT) symboltype = TYPE_INT;
             else if (symboltype == TYPE_REF_BYTE) symboltype = TYPE_BYTE;
         }
     }
-
 
     std::string getIdName() { return id ? id->getName() : ""; }
 
@@ -912,27 +952,26 @@ public:
 
 
     virtual void sem() override {
-    if (left) left->sem();
-    if (right) right->sem();
+        if (left) left->sem();
+        if (right) right->sem();
 
-    SymbolType l = left ? left->getsymbol() : TYPE_INVALID;
-    SymbolType r = right ? right->getsymbol() : TYPE_INVALID;
+        SymbolType l = left ? left->getsymbol() : TYPE_INVALID;
+        SymbolType r = right ? right->getsymbol() : TYPE_INVALID;
 
-    // Έλεγχος αν και τα δύο είναι αριθμητικά (int, byte, ref int, ref byte)
-    auto isNumeric = [](SymbolType t) {
-        return t == TYPE_INT || t == TYPE_BYTE || t == TYPE_REF_INT || t == TYPE_REF_BYTE;
-    };
+        // ref t ==> t
+        SymbolType baseL = (l == TYPE_REF_INT) ? TYPE_INT : ((l == TYPE_REF_BYTE) ? TYPE_BYTE : l);
+        SymbolType baseR = (r == TYPE_REF_INT) ? TYPE_INT : ((r == TYPE_REF_BYTE) ? TYPE_BYTE : r);
 
-    if (isNumeric(l) && isNumeric(r)) {
-        // Αν ένας από τους δύο είναι int, το αποτέλεσμα προάγεται σε int
-        if (l == TYPE_INT || l == TYPE_REF_INT || r == TYPE_INT || r == TYPE_REF_INT)
+        if (baseL == TYPE_INT && baseR == TYPE_INT) {
             symboltype = TYPE_INT;
-        else
+        } else if (baseL == TYPE_BYTE && baseR == TYPE_BYTE) {
             symboltype = TYPE_BYTE;
-        return;
+        } else {
+            yyerror("Semantic Error: Arithmetic operands must be of the exact same numeric type (both int or both byte).");
+            exit(1);
+        }
     }
-    yyerror("Type mismatch in BinOp: operands must be numeric");
-}
+
 private:
     Expr *left;
     char op;
@@ -951,7 +990,8 @@ public:
     virtual llvm::Value* codegen() override;
 
     virtual void sem() override {
-        symboltype=TYPE_BOOL;
+        // True or False have byte type
+        symboltype=TYPE_BYTE;
     }
 private:
     bool flag;
@@ -1034,6 +1074,19 @@ public:
         }
 
         for (size_t i = 0; i < argExprs.size(); ++i) {
+
+            SymbolType expectedT = e->param_types[i];
+            Expr* actualE = argExprs[i];
+
+            if (expectedT == TYPE_REF_INT || expectedT == TYPE_REF_BYTE) {
+                if (dynamic_cast<Lvalue*>(actualE) == nullptr) {
+                    yyerror(("Semantic Error: Parameter " + std::to_string(i+1) + 
+                             " of function " + id->getName() + 
+                             " is passed by reference and requires an l-value.").c_str());
+                    exit(1);
+                }
+            }
+            actualE->type_check(expectedT);
             argExprs[i]->type_check(e->param_types[i]);
         }
 
@@ -1086,7 +1139,19 @@ public:
         }
 
         for (size_t i = 0; i < argExprs.size(); ++i) {
-            argExprs[i]->type_check(e->param_types[i]);
+
+            SymbolType expectedT = e->param_types[i];
+            Expr* actualE = argExprs[i];
+                    
+            if (expectedT == TYPE_REF_INT || expectedT == TYPE_REF_BYTE) {
+                if (dynamic_cast<Lvalue*>(actualE) == nullptr) {
+                    yyerror(("Semantic Error: Parameter " + std::to_string(i+1) + 
+                             " of function " + id->getName() + 
+                             " is passed by reference and requires an l-value.").c_str());
+                    exit(1);
+                }
+            }
+            actualE->type_check(expectedT);
         }
 
         symboltype = e->return_value;
@@ -1114,9 +1179,14 @@ public:
         SymbolEntry *function_entry = st.lookup("$$ret$$"); 
         if(function_entry != nullptr) {
             if (e) {
+                if (function_entry->return_value == TYPE_FUNC) {
+                    yyerror("Semantic Error: Cannot return a value from a procedure (void function).");
+                    exit(1);
+                }
                 e->type_check(function_entry->return_value);
             } else if (function_entry->return_value != TYPE_FUNC) {
-                yyerror("Return value missing in function");
+                yyerror("Semantic Error: Return value missing in function that expects a result.");
+                exit(1);
             }
         }
     }
@@ -1175,6 +1245,11 @@ public:
     virtual void sem() override {
         if(l) l->sem();
         if(e) e->sem();
+
+        if (l->isStringLiteral()) {
+            yyerror("Semantic Error: Cannot assign to a string literal constant.");
+            exit(1);
+        }
         
         SymbolEntry *leftEntry = st.lookup(l->getIdName());
         
@@ -1251,14 +1326,15 @@ public:
 
     virtual void sem() override {
         if (single != nullptr) {
-        single->sem(); 
-        if (single->getsymbol() != TYPE_BOOL) {
-            yyerror("Condition must be of boolean type");
-            exit(1);
+            single->sem(); 
+            if (single->getsymbol() != TYPE_BOOL) {
+                yyerror("Semantic Error: Condition must be of boolean type");
+                exit(1);
+            }
+            symboltype = TYPE_BOOL;
+            return;
         }
-        symboltype = TYPE_BOOL;
-        return;
-    }
+
         if (left) left->sem();
         if (right) right->sem();
 
@@ -1267,25 +1343,16 @@ public:
 
         // Συγκριτικοί τελεστές μεταξύ αριθμών: <, >, <=, >=, =, <>
         if (oper == "<" || oper == ">" || oper == "<=" || oper == ">=" || oper == "=" || oper == "<>") {
-            
-            auto isNum = [](SymbolType t) {
-                return t == TYPE_INT || t == TYPE_BYTE || t == TYPE_REF_INT || t == TYPE_REF_BYTE || t == TYPE_BOOL;
-            };
-
-            if (isNum(lt) && isNum(rt)) {
-                symboltype = TYPE_BOOL;
-                return;
-            } else {
-                yyerror("Type mismatch in comparison: operands must be numeric");
-                symboltype = TYPE_INVALID;
-                return;
-            }
+            symboltype = TYPE_BOOL;
+            return;
         }
 
         // Λογικοί τελεστές and/or
         if (oper == "and" || oper == "or") {
-            left->type_check(TYPE_BOOL);
-            right->type_check(TYPE_BOOL);
+            if (lt != TYPE_BOOL || rt != TYPE_BOOL) {
+                yyerror("Semantic Error: Operands of 'and' / 'or' must be conditions.");
+                exit(1);
+            }
             symboltype = TYPE_BOOL;
             return;
         }
@@ -1316,8 +1383,14 @@ public:
     virtual llvm::Value* codegen() override;
 
     virtual void sem() override {
-        if(con) con->sem();
-        symboltype = con->getsymbol();
+        if(con) {
+            con->sem();
+            if (con->getsymbol() != TYPE_BOOL) {
+                yyerror("Semantic Error: Operand of 'not' must be a condition.");
+                exit(1);
+            }
+        }
+        symboltype = TYPE_BOOL; 
     }
 
 private:
