@@ -3,6 +3,7 @@ parser_test/
 *.txt
 *.pdf
 *.sh
+*.dana
 
 danac2_debug
 danac_debug
