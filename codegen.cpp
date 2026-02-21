@@ -420,20 +420,37 @@ llvm::Value* BinOp::codegen() {
     llvm::Value *rhs = right->codegen();
     if (!lhs || !rhs) return nullptr;
 
+    SymbolType leftTy = left->getsymbol();
+    SymbolType rightTy = right->getsymbol();
+
     // Αν διαφέρουν τα μεγέθη
     if (lhs->getType() != rhs->getType()) {
-        if (lhs->getType()->getPrimitiveSizeInBits() < rhs->getType()->getPrimitiveSizeInBits())
-            lhs = Builder.CreateSExt(lhs, rhs->getType(), "lhs_ext");
-        else
-            rhs = Builder.CreateSExt(rhs, lhs->getType(), "rhs_ext");
+        if (lhs->getType()->getPrimitiveSizeInBits() < rhs->getType()->getPrimitiveSizeInBits()) {
+            // Check for type_byte, if so it is unsigned
+            if (leftTy == TYPE_BYTE || leftTy == TYPE_REF_BYTE)
+                lhs = Builder.CreateZExt(lhs, rhs->getType(), "lhs_zext");
+            else
+                lhs = Builder.CreateSExt(lhs, rhs->getType(), "lhs_sext");
+        }
+        else {
+            // The same checking as above for the rhs
+            if (rightTy == TYPE_BYTE || rightTy == TYPE_REF_BYTE)
+                rhs = Builder.CreateZExt(rhs, lhs->getType(), "rhs_zext");
+            else
+                rhs = Builder.CreateSExt(rhs, lhs->getType(), "rhs_sext");
+        }
     }
 
     switch (op) {
         case '+': return Builder.CreateAdd(lhs, rhs, "addtmp");
         case '-': return Builder.CreateSub(lhs, rhs, "subtmp");
         case '*': return Builder.CreateMul(lhs, rhs, "multmp");
-        case '/': return Builder.CreateSDiv(lhs, rhs, "divtmp");
-        case '%': return Builder.CreateSRem(lhs, rhs, "remtmp");
+        case '/': 
+            if (symboltype == TYPE_BYTE) return Builder.CreateUDiv(lhs, rhs, "divtmp");
+            else return Builder.CreateSDiv(lhs, rhs, "divtmp");
+        case '%': 
+            if (symboltype == TYPE_BYTE) return Builder.CreateURem(lhs, rhs, "remtmp");
+            else return Builder.CreateSRem(lhs, rhs, "remtmp");
         default: return nullptr;
     }
 }
@@ -456,8 +473,12 @@ llvm::Value* ReturnStmt::codegen() {
 
     // return type == συνάρτηση
     if (val->getType() != retType && !retType->isVoidTy()) {
-        if (val->getType()->getIntegerBitWidth() < retType->getIntegerBitWidth())
-            val = Builder.CreateSExt(val, retType, "ret_ext");
+        if (val->getType()->getIntegerBitWidth() < retType->getIntegerBitWidth()) {
+            if (e->getsymbol() == TYPE_BYTE || e->getsymbol() == TYPE_REF_BYTE)
+                val = Builder.CreateZExt(val, retType, "ret_zext");
+            else
+                val = Builder.CreateSExt(val, retType, "ret_sext");
+        }
         else
             val = Builder.CreateTrunc(val, retType, "ret_trunc");
     }
@@ -882,6 +903,8 @@ llvm::Value* Cond::codegen() {
         }
     }
 
+
+
     if (oper == "and" || oper == "or") {
         llvm::Value *lhsVal = left->codegen(); 
         if (!lhsVal) return nullptr; 
@@ -924,34 +947,46 @@ llvm::Value* Cond::codegen() {
 
     llvm::Value *lhsVal = left->codegen(); 
     llvm::Value *rhsVal = right->codegen(); 
+
+    SymbolType lt = left->getsymbol();
+    SymbolType rt = right->getsymbol();
     
     if (!lhsVal || !rhsVal) return nullptr; 
 
     if (lhsVal->getType() != rhsVal->getType()) { 
         if (lhsVal->getType()->getIntegerBitWidth() < rhsVal->getType()->getIntegerBitWidth()) { 
-            lhsVal = Builder.CreateZExt(lhsVal, rhsVal->getType(), "zext_lhs"); 
+            if (lt == TYPE_BYTE || lt == TYPE_REF_BYTE)
+                lhsVal = Builder.CreateZExt(lhsVal, rhsVal->getType(), "zext_lhs"); 
+            else
+                lhsVal = Builder.CreateSExt(lhsVal, rhsVal->getType(), "sext_lhs");
         } else { 
-            rhsVal = Builder.CreateZExt(rhsVal, lhsVal->getType(), "zext_rhs"); 
+            if (rt == TYPE_BYTE || rt == TYPE_REF_BYTE)
+                rhsVal = Builder.CreateZExt(rhsVal, lhsVal->getType(), "zext_rhs"); 
+            else
+                rhsVal = Builder.CreateSExt(rhsVal, lhsVal->getType(), "sext_rhs");
         }
     }
 
-    if (oper == ">") { 
-        return Builder.CreateICmpSGT(lhsVal, rhsVal, "cmp_gt"); 
-    } else if (oper == "<") { 
-        return Builder.CreateICmpSLT(lhsVal, rhsVal, "cmp_lt"); 
-    } else if (oper == ">=") { 
-        return Builder.CreateICmpSGE(lhsVal, rhsVal, "cmp_ge"); 
-    } else if (oper == "<=") { 
-        return Builder.CreateICmpSLE(lhsVal, rhsVal, "cmp_le"); 
-    } else if (oper == "=") { 
-        return Builder.CreateICmpEQ(lhsVal, rhsVal, "cmp_eq"); 
-    } else if (oper == "<>") { 
-        return Builder.CreateICmpNE(lhsVal, rhsVal, "cmp_ne"); 
-    } else { 
-        std::cerr << "Unknown condition operator: " << oper << "\n"; 
-        return nullptr; 
+    bool bothUnsigned = (lt == TYPE_BYTE && rt == TYPE_BYTE);
+
+    if (oper == "=")  return Builder.CreateICmpEQ(lhsVal, rhsVal, "cmp_eq"); 
+    if (oper == "<>") return Builder.CreateICmpNE(lhsVal, rhsVal, "cmp_ne"); 
+
+    if (bothUnsigned) {
+        if (oper == ">")  return Builder.CreateICmpUGT(lhsVal, rhsVal, "cmp_ugt"); 
+        if (oper == "<")  return Builder.CreateICmpULT(lhsVal, rhsVal, "cmp_ult"); 
+        if (oper == ">=") return Builder.CreateICmpUGE(lhsVal, rhsVal, "cmp_uge"); 
+        if (oper == "<=") return Builder.CreateICmpULE(lhsVal, rhsVal, "cmp_ule"); 
+    } else {
+        if (oper == ">")  return Builder.CreateICmpSGT(lhsVal, rhsVal, "cmp_sgt"); 
+        if (oper == "<")  return Builder.CreateICmpSLT(lhsVal, rhsVal, "cmp_slt"); 
+        if (oper == ">=") return Builder.CreateICmpSGE(lhsVal, rhsVal, "cmp_sge"); 
+        if (oper == "<=") return Builder.CreateICmpSLE(lhsVal, rhsVal, "cmp_sle");
     }
+
+    return nullptr;
 }
+
 llvm::Value* NotCond::codegen() {
     if (!con) return nullptr;
     llvm::Value *condVal = con->codegen();
@@ -1007,9 +1042,20 @@ llvm::Value* Opt_Elif_Else::codegen() {
 
 // --- Lvalue GEP  ---
 llvm::Value* Lvalue::getPointer() {
+   
     if (!str.empty()) {
-        return Builder.CreateGlobalStringPtr(str);
+        llvm::Value *StringPtr = Builder.CreateGlobalStringPtr(str);
+        if (!expr_list) return StringPtr;
+        
+        llvm::Value *IdxVal = expr_list->getExprs()[0]->codegen();
+        if (expr_list->getExprs()[0]->getsymbol() == TYPE_BYTE || expr_list->getExprs()[0]->getsymbol() == TYPE_REF_BYTE) {
+            IdxVal = Builder.CreateZExt(IdxVal, llvm::Type::getInt64Ty(TheContext), "str_idx_zext");
+        } else {
+            IdxVal = Builder.CreateSExt(IdxVal, llvm::Type::getInt64Ty(TheContext), "str_idx_sext");
+        }
+        return Builder.CreateInBoundsGEP(llvm::Type::getInt8Ty(TheContext), StringPtr, {IdxVal}, "stridx");
     }
+
     if (!id) return nullptr;
 
     SymbolEntry *entry = st.lookup(id->getName());
@@ -1034,13 +1080,11 @@ llvm::Value* Lvalue::getPointer() {
     if (expr_list) {
         llvm::Value *FlatIdx = nullptr;
         
-        // 1. Βρίσκουμε τις διαστάσεις του πίνακα
         std::vector<int> actual_dims;
         if (ArrayDimensions.count(entry)) {
             actual_dims = ArrayDimensions[entry];
         }
 
-        // 2. Υπολογίζουμε τους πολλαπλασιαστές
         std::vector<int> multipliers;
         if (actual_dims.size() > 1) {
             for (size_t i = 1; i < actual_dims.size(); ++i) {
@@ -1052,7 +1096,12 @@ llvm::Value* Lvalue::getPointer() {
         for (size_t i = 0; i < exprs.size(); ++i) {
             llvm::Value *IdxVal = exprs[i]->codegen();
             if (!IdxVal) continue;
-            IdxVal = Builder.CreateSExt(IdxVal, llvm::Type::getInt64Ty(TheContext), "idx_ext");
+
+            if (exprs[i]->getsymbol() == TYPE_BYTE || exprs[i]->getsymbol() == TYPE_REF_BYTE) {
+                IdxVal = Builder.CreateZExt(IdxVal, llvm::Type::getInt64Ty(TheContext), "idx_zext");
+            } else {
+                IdxVal = Builder.CreateSExt(IdxVal, llvm::Type::getInt64Ty(TheContext), "idx_sext");
+            }
 
             if (!FlatIdx) {
                 FlatIdx = IdxVal;

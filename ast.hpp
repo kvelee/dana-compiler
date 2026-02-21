@@ -136,9 +136,6 @@ public:
     virtual void type_check(SymbolType symbolt){
         sem();
         if(symboltype!=symbolt) {
-            // Επιτρέπουμε μίξη byte <-> bool
-            if ((symbolt == TYPE_BYTE && symboltype == TYPE_BOOL) ||
-                (symbolt == TYPE_BOOL && symboltype == TYPE_BYTE)) return;
 
             // --- Επιτρέπουμε μίξη int <-> byte ---
             if ((symbolt == TYPE_INT && symboltype == TYPE_BYTE) ||
@@ -151,6 +148,8 @@ public:
             if((symbolt == TYPE_REF_BYTE && symboltype == TYPE_BYTE) \
               || (symbolt == TYPE_BYTE && symboltype ==TYPE_REF_BYTE)) return;
             
+            // bool -> byte (one way)
+            if (symbolt == TYPE_BYTE && symboltype == TYPE_BOOL) return;
 
             if(symboltype == TYPE_FUNC) return;
 
@@ -289,19 +288,15 @@ public:
     virtual llvm::Value* codegen() override;
 
     virtual void sem() override {
-        
         std::vector<Id *> temp = id_list.getIds();
         for(Id *idd : temp) {
             if (array_type != nullptr){
-                st.insert(idd->getName(), TYPE_PARAM, array_type->getsymbol());
-
+                st.insert(idd->getName(), TYPE_PARAM, array_type->getsymbol(), {}, true);
             }
             else {
-                st.insert(idd->getName(), TYPE_PARAM, data_type);
+                st.insert(idd->getName(), TYPE_PARAM, data_type, {}, false);
             }
-
         }
-
         if(next!=nullptr) next->sem();
     }
 
@@ -366,15 +361,25 @@ public:
     virtual llvm::Value* codegen() override;
 
     virtual void sem() override {
+
+        std::vector<SymbolType> paramTypes;
+        if (oft != nullptr) {
+            auto params = oft->getParams();
+            for (auto &p : params) {
+                paramTypes.push_back(p.second);
+            }
+        }
+
         if (tp != nullptr) {
             tp->sem();
-            st.insert(Id_val->getName(), TYPE_FUNC, tp->getsymbol());
+            st.insert(Id_val->getName(), TYPE_FUNC, tp->getsymbol(), paramTypes);
         }
-        else st.insert(Id_val->getName(), SymbolType::TYPE_FUNC);
+        else {
+            st.insert(Id_val->getName(), TYPE_FUNC, TYPE_FUNC, paramTypes);
+        }
 
         if (oft != nullptr) oft->sem();
     }
-
 
     std::string getName(){
         return Id_val->getName();
@@ -477,7 +482,6 @@ public:
             return;
         }
 
-        // Αν η συνάρτηση περιμένει τιμή, το σκέτο exit απαγορεύεται
         if (current_function->return_value != TYPE_FUNC && current_function->return_value != LOOP) {
             yyerror("Exit statement not allowed in functions with return type\n");
             return;
@@ -608,7 +612,17 @@ public:
 
     virtual llvm::Value* codegen() override;
 
-    virtual void sem() override {}
+    virtual void sem() override {
+        std::vector<SymbolType> paramTypes;
+        if (hd && hd->getOpt_Fpar() != nullptr) {
+            auto params = hd->getOpt_Fpar()->getParams();
+            for (auto &p : params) {
+                paramTypes.push_back(p.second);
+            }
+        }
+        SymbolType ret = (hd && hd->gettype()) ? hd->gettype()->getsymbol() : TYPE_FUNC;
+        st.insert(hd->getName(), TYPE_FUNC, ret, paramTypes);
+    }
 
 private:
     Header *hd;
@@ -647,7 +661,8 @@ public:
             std::vector<Id*> temp = idlst->getIds();
             for (Id* id : temp){
                 SymbolType t = tp->getsymbol();
-                st.insert(id->getName(),t,t);
+                bool isArr = (tp->getDims().size() > 0);
+                st.insert(id->getName(), t, t, {}, isArr);
             }
         }
     }
@@ -704,9 +719,17 @@ inline void FuncDefBlock::sem() {
         st.openScope(); 
     }
 
+    std::vector<SymbolType> paramTypes;
+    if (header && header->getOpt_Fpar() != nullptr) {
+        auto params = header->getOpt_Fpar()->getParams();
+        for (auto &p : params) {
+            paramTypes.push_back(p.second);
+        }
+    }
+
     if (header) {
         SymbolType ret = header->gettype() ? header->gettype()->getsymbol() : TYPE_FUNC;
-        st.insert(header->getName(), TYPE_FUNC, ret);
+        st.insert(header->getName(), TYPE_FUNC, ret, paramTypes);
     }
 
     st.openScope(); // Άνοιγμα scope για το σώμα της συνάρτησης
@@ -790,24 +813,31 @@ public:
     virtual llvm::Value* codegen() override;
 
     virtual void sem() override {
-    if (id) {
-        id->sem();
-        symboltype = id->getsymbol();
-    } else {
-        symboltype = TYPE_INVALID;
+        if (id) {
+            id->sem();
+            symboltype = id->getsymbol();
+        } else if (!str.empty()) {
+            symboltype = TYPE_REF_BYTE;
+        } else {
+            symboltype = TYPE_INVALID;
+        }
+
+        if (expr_list) {
+            expr_list->sem();
+
+            if (symboltype == TYPE_REF_INT) symboltype = TYPE_INT;
+            else if (symboltype == TYPE_REF_BYTE) symboltype = TYPE_BYTE;
+        }
     }
 
-    if (expr_list) {
-        expr_list->sem();
-
-        if (symboltype == TYPE_REF_INT) symboltype = TYPE_INT;
-        else if (symboltype == TYPE_REF_BYTE) symboltype = TYPE_BYTE;
-    }
-}
 
     std::string getIdName() { return id ? id->getName() : ""; }
 
     llvm::Value* getPointer();
+
+    bool hasExprList() const { return expr_list != nullptr; }
+    bool isStringLiteral() const { return !str.empty(); }
+
 private:
     Id *id;
     std::string str;
@@ -993,7 +1023,20 @@ public:
         }
         if (list) list->sem();
 
-        // use the function's declared return type
+        std::vector<Expr*> argExprs;
+        if (list) argExprs = list->getExprs();
+
+        if (argExprs.size() != e->param_types.size()) {
+            yyerror(("Function '" + id->getName() + "' expects " + 
+                     std::to_string(e->param_types.size()) + " arguments, but " + 
+                     std::to_string(argExprs.size()) + " were given.").c_str());
+            exit(1);
+        }
+
+        for (size_t i = 0; i < argExprs.size(); ++i) {
+            argExprs[i]->type_check(e->param_types[i]);
+        }
+
         symboltype = e->return_value;
     }
 
@@ -1032,7 +1075,20 @@ public:
 
         if (list) list->sem();
 
-        // procedures/functions: set symboltype to the stored return type
+        std::vector<Expr*> argExprs;
+        if (list) argExprs = list->getExprs();
+
+        if (argExprs.size() != e->param_types.size()) {
+            yyerror(("Function '" + id->getName() + "' expects " + 
+                     std::to_string(e->param_types.size()) + " arguments, but " + 
+                     std::to_string(argExprs.size()) + " were given.").c_str());
+            exit(1);
+        }
+
+        for (size_t i = 0; i < argExprs.size(); ++i) {
+            argExprs[i]->type_check(e->param_types[i]);
+        }
+
         symboltype = e->return_value;
     }
 
@@ -1117,24 +1173,33 @@ public:
     virtual llvm::Value* codegen() override;
 
     virtual void sem() override {
-    if(l) l->sem();
-    if(e) e->sem();
-    
-    SymbolType lt = l->getsymbol();
-    SymbolType et = e->getsymbol();
+        if(l) l->sem();
+        if(e) e->sem();
+        
+        SymbolEntry *leftEntry = st.lookup(l->getIdName());
+        
+        if (leftEntry && leftEntry->is_array && !l->hasExprList()) {
+            yyerror("Semantic Error: Cannot assign directly to an array. Use strcpy for strings.");
+            exit(1);
+        }
 
-    // Αν οι τύποι είναι ίδιοι, όλα καλά
-    if (lt == et) return;
+        if (Lvalue *rval = dynamic_cast<Lvalue*>(e)) {
+            SymbolEntry *rightEntry = st.lookup(rval->getIdName());
+            if (rightEntry && rightEntry->is_array && !rval->hasExprList()) {
+                yyerror("Semantic Error: Cannot assign from an array.");
+                exit(1);
+            }
+            if (rval->isStringLiteral()) {
+                yyerror("Semantic Error: Cannot assign from a string literal. Use strcpy.");
+                exit(1);
+            }
+        }
 
-    // Επιτρέπουμε μίξη byte/int/bool
-    bool leftNum = (lt == TYPE_INT || lt == TYPE_BYTE || lt == TYPE_REF_INT || lt == TYPE_REF_BYTE);
-    bool rightNum = (et == TYPE_INT || et == TYPE_BYTE || et == TYPE_REF_INT || et == TYPE_REF_BYTE || et == TYPE_BOOL);
+        SymbolType lt = l->getsymbol();
+        e->type_check(lt);
+    }
 
-    if (leftNum && rightNum) return; // Επιτρέπουμε την ανάθεση μεταξύ τους
-
-    e->type_check(lt);
-}
-private:
+    private:
     Lvalue *l;
     Expr *e;
 };
@@ -1186,11 +1251,14 @@ public:
 
     virtual void sem() override {
         if (single != nullptr) {
-            single->type_check(TYPE_BOOL);
-            symboltype = TYPE_BOOL;
-            return;
+        single->sem(); 
+        if (single->getsymbol() != TYPE_BOOL) {
+            yyerror("Condition must be of boolean type");
+            exit(1);
         }
-
+        symboltype = TYPE_BOOL;
+        return;
+    }
         if (left) left->sem();
         if (right) right->sem();
 

@@ -32,11 +32,13 @@ extern std::ostream &operator<<(std::ostream &out, SymbolType t);
 struct SymbolEntry {
     SymbolType type;
     SymbolType return_value;
+    std::vector<SymbolType> param_types;
+    bool is_array;
     //=====
     llvm::Value *alloca_ptr = nullptr;
     //=====
     SymbolEntry () {}
-    SymbolEntry(SymbolType t, SymbolType rv = TYPE_INVALID) {
+    SymbolEntry(SymbolType t, SymbolType rv = TYPE_INVALID, std::vector<SymbolType> pt = {}, bool isArr = false) {
         switch (t) {
             case TYPE_FUNC:
                 if (rv == TYPE_INT || rv == TYPE_BYTE || rv == TYPE_BOOL\
@@ -45,8 +47,6 @@ struct SymbolEntry {
                     type = TYPE_FUNC;
                     return_value = rv;
                 } else {
-                    //std::cout<<t<<" "<<rv<<"\n";
-                    //sleep(10);
                     yyerror("Function return type must be int, byte or bool");
                     type = TYPE_INVALID;
                     return_value = TYPE_INVALID;
@@ -92,14 +92,13 @@ struct SymbolEntry {
                 return_value = TYPE_INVALID;
                 break;
         }
+        param_types = pt;
+        is_array = isArr;
     }
 
     int value;
     std::string name;
 };
-
-static SymbolEntry BUILTIN_FUNC_INT = SymbolEntry(TYPE_FUNC,TYPE_INT);
-static SymbolEntry BUILTIN_FUNC_BYTE = SymbolEntry(TYPE_FUNC,TYPE_BYTE);
 
 
 class Scope{
@@ -110,16 +109,11 @@ public:
         if(locals.find(s)==locals.end()) return nullptr;
         return &locals[s];
     }
-
-    void insert(std::string s, SymbolType stt) {
-        if(locals.find(s)!=locals.end()) yyerror(("Duplicate variable! " + s).c_str());
-        locals[s]=SymbolEntry(stt,stt);
+    
+    void insert(std::string s, SymbolType stt, SymbolType rv = TYPE_INVALID, std::vector<SymbolType> pt = {}, bool isArr = false) {
+        if(locals.find(s) != locals.end()) yyerror(("Duplicate variable! " + s).c_str());
+        locals[s] = SymbolEntry(stt, rv, pt, isArr);
         locals[s].name = s;
-    }
-    void insert(std::string s, SymbolType stt, SymbolType rv) {
-        if(locals.find(s)!=locals.end()) yyerror(("Duplicate variable! " + s).c_str());
-        locals[s]=SymbolEntry(stt,rv);
-        locals[s].name=s;
     }
 
     std::map<std::string, SymbolEntry> getlocals() {
@@ -146,19 +140,12 @@ public:
     SymbolEntry *lookup(std::string s) {
         
         
-        if(s=="writeString" || s=="writeChar" || s=="readString") return &BUILTIN_FUNC_BYTE;
-        if(s=="readInteger" || s=="writeInteger" || s=="extend" \
-        || s=="strlen" || s=="strcmp") return &BUILTIN_FUNC_INT;
-
         for (auto i = scopes.rbegin(); i!=scopes.rend(); ++i){
             SymbolEntry *e = i->lookup(s);
            
             if(e!=nullptr) { return e;}
         }
 
-        yyerror(("Variable <" +s+ "> not found!").c_str());
-        printSymbolTable();
-        sleep(10);
         return nullptr;
     }
 
@@ -232,12 +219,8 @@ public:
     std::cout << "==================================\n";
 }
 
-
-    void insert(std::string s, SymbolType st) {
-        scopes.back().insert(s,st);
-    }
-    void insert(std::string s, SymbolType stt, SymbolType rv){
-        scopes.back().insert(s,stt,rv);
+    void insert(std::string s, SymbolType stt, SymbolType rv = TYPE_INVALID, std::vector<SymbolType> pt = {}, bool isArr = false){
+        scopes.back().insert(s, stt, rv, pt, isArr);
     }
 
     void openScope() {
