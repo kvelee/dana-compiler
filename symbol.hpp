@@ -157,6 +157,11 @@ public:
         return nullptr;
     }
 
+    SymbolEntry *lookupCurrentScope(std::string s) {
+        if (scopes.empty()) return nullptr;
+        return scopes.back().lookup(s);
+    }
+
     void printSymbolTable() {
     std::cout << "\n========== SYMBOL TABLE ==========\n";
 

@@ -703,7 +703,30 @@ public:
 
         
         SymbolType ret = (hd && hd->gettype()) ? hd->gettype()->getsymbol() : TYPE_FUNC;
-        st.insert(hd->getName(), TYPE_FUNC, ret, paramTypes, false, 0, paramDims);
+        SymbolEntry *existing = st.lookupCurrentScope(hd->getName());
+        
+        if (existing == nullptr) {
+            st.insert(hd->getName(), TYPE_FUNC, ret, paramTypes, false, 0, paramDims);
+        } else {
+            if (existing->type != TYPE_FUNC || existing->return_value != ret || existing->param_types.size() != paramTypes.size()) {
+                std::string msg = "Semantic Error: Definition of function '" + hd->getName() + "' does not match its declaration (decl).";
+                yyerror(msg.c_str());
+                exit(1);
+            } else {
+                for (size_t i = 0; i < paramTypes.size(); ++i) {
+                    if (existing->param_types[i] != paramTypes[i]) {
+                        std::string msg = "Semantic Error: Type of parameter " + std::to_string(i+1) + " in function '" + hd->getName() + "' does not match previous declaration.";
+                        yyerror(msg.c_str());
+                        exit(1);
+                    }
+                    if (existing->param_dims[i] != paramDims[i]) {
+                        std::string msg = "Semantic Error: Array dimensions of parameter " + std::to_string(i+1) + " in function '" + hd->getName() + "' do not match previous declaration.";
+                        yyerror(msg.c_str());
+                        exit(1);
+                    }
+                }
+            }
+        }
     }
 
 private:
@@ -844,8 +867,31 @@ inline void FuncDefBlock::sem() {
         exit(1);
         }
 
-        SymbolType ret = header->gettype() ? header->gettype()->getsymbol() : TYPE_FUNC;
-        st.insert(header->getName(), TYPE_FUNC, ret, paramTypes, false, 0, paramDims);
+        SymbolType ret = (header && header->gettype()) ? header->gettype()->getsymbol() : TYPE_FUNC;
+        SymbolEntry *existing = st.lookupCurrentScope(header->getName());
+        
+        if (existing == nullptr) {
+            st.insert(header->getName(), TYPE_FUNC, ret, paramTypes, false, 0, paramDims);
+        } else {
+            if (existing->type != TYPE_FUNC || existing->return_value != ret || existing->param_types.size() != paramTypes.size()) {
+                std::string msg = "Semantic Error: Definition of function '" + header->getName() + "' does not match its declaration (decl).";
+                yyerror(msg.c_str());
+                exit(1);
+            } else {
+                for (size_t i = 0; i < paramTypes.size(); ++i) {
+                    if (existing->param_types[i] != paramTypes[i]) {
+                        std::string msg = "Semantic Error: Type of parameter " + std::to_string(i+1) + " in function '" + header->getName() + "' does not match previous declaration.";
+                        yyerror(msg.c_str());
+                        exit(1);
+                    }
+                    if (existing->param_dims[i] != paramDims[i]) {
+                        std::string msg = "Semantic Error: Array dimensions of parameter " + std::to_string(i+1) + " in function '" + header->getName() + "' do not match previous declaration.";
+                        yyerror(msg.c_str());
+                        exit(1);
+                    }
+                }
+            }
+        }
     }
 
     SymbolEntry *funcEntry = st.lookup(header->getName());

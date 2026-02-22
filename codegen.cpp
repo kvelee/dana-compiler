@@ -21,14 +21,14 @@ std::map<std::string,llvm::Value *> NamedValues;
 std::vector<std::pair<std::string, llvm::BasicBlock*>> LoopMergeBlocks;
 std::vector<std::pair<std::string, llvm::BasicBlock*>> LoopHeaderBlocks;
 
-std::map<SymbolEntry*, llvm::Function*> FuncPointers;
-
 std::map<SymbolEntry*, std::vector<int>> ArrayDimensions;
 
 // Active functions for the nested function implentation
 std::vector<SymbolEntry*> active_functions;
 
 bool isOutermostFunction = true;
+
+static int func_id_counter = 0;
 
 // Helper function for extracting the LLVM-Type
 llvm::Type *getLLVMType(SymbolType t) {
@@ -155,7 +155,7 @@ llvm::Value* StmtList::codegen() {
 // --- Func_Call ---
 llvm::Value* Func_Call::codegen() {
     if (!id) {
-        std::cerr << "Error: Proc_Call has null id\n";
+        std::cerr << "Error: Func_Call has null id\n";
         return nullptr;
     }
     if (!TheModule) {
@@ -165,15 +165,11 @@ llvm::Value* Func_Call::codegen() {
     // 1. Βρες τη συνάρτηση
     SymbolEntry *e = st.lookup(id->getName());
     llvm::Function *CalleeF = nullptr;
-    if (e && FuncPointers.count(e)) {
-        CalleeF = FuncPointers[e];
-    } else {
-        CalleeF = TheModule->getFunction(id->getName()); // Fallback
+    if (e && e->alloca_ptr) {
+        CalleeF = llvm::cast<llvm::Function>(e->alloca_ptr);
     }
-
     if (!CalleeF) {
-        std::cerr << "Unknown function referenced: " << id->getName() << "\n";
-        return nullptr;
+        CalleeF = TheModule->getFunction(id->getName()); // Fallback (π.χ. για built-ins)
     }
 
     // 2. Prepare the arguments
@@ -466,28 +462,34 @@ llvm::Value* ReturnStmt::codegen() {
     llvm::Type *retType = TheFunction->getReturnType();
 
     if (!e) { 
-        // Αν η συνάρτηση είναι η "main" -> 0
         if (TheFunction->getName() == "main") {
-            return Builder.CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(TheContext), 0));
+            Builder.CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(TheContext), 0));
+        } else {
+            Builder.CreateRetVoid(); 
         }
-        return Builder.CreateRetVoid(); 
-    }
-    
-    llvm::Value *val = e->codegen();
-    if (!val) return nullptr;
+    } else {
+        llvm::Value *val = e->codegen();
+        if (!val) return nullptr;
 
-    // return type == συνάρτηση
-    if (val->getType() != retType && !retType->isVoidTy()) {
-        if (val->getType()->getIntegerBitWidth() < retType->getIntegerBitWidth()) {
-            if (e->getsymbol() == TYPE_BYTE || e->getsymbol() == TYPE_REF_BYTE)
-                val = Builder.CreateZExt(val, retType, "ret_zext");
-            else
-                val = Builder.CreateSExt(val, retType, "ret_sext");
+        // return type == συνάρτηση
+        if (val->getType() != retType && !retType->isVoidTy()) {
+            if (val->getType()->getIntegerBitWidth() < retType->getIntegerBitWidth()) {
+                if (e->getsymbol() == TYPE_BYTE || e->getsymbol() == TYPE_REF_BYTE)
+                    val = Builder.CreateZExt(val, retType, "ret_zext");
+                else
+                    val = Builder.CreateSExt(val, retType, "ret_sext");
+            }
+            else {
+                val = Builder.CreateTrunc(val, retType, "ret_trunc");
+            }
         }
-        else
-            val = Builder.CreateTrunc(val, retType, "ret_trunc");
+        Builder.CreateRet(val);
     }
-    return Builder.CreateRet(val);
+
+    llvm::BasicBlock *DeadBB = llvm::BasicBlock::Create(TheContext, "dead_after_return", TheFunction);
+    Builder.SetInsertPoint(DeadBB);
+
+    return nullptr;
 }
 
 // --- IfBlock ---
@@ -540,83 +542,86 @@ llvm::Value* FuncDefBlock::codegen() {
     }
     
     std::string originalName = header->getName();
-    std::string llvmName = originalName;
-    
-    // Αν είναι η πρώτη συνάρτηση, την βαφτίζουμε "main"
+    llvm::Function *TheFunction = nullptr;
+    SymbolEntry *funcEntry = nullptr;
+    llvm::Type *returnType = nullptr;
+
     if (isOutermostFunction) {
-        llvmName = "main";
         isOutermostFunction = false;
+        returnType = llvm::Type::getInt32Ty(TheContext);
+        llvm::FunctionType *FT = llvm::FunctionType::get(returnType, std::vector<llvm::Type*>(), false);
+        TheFunction = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, "main", TheModule.get());
     } else {
-        SymbolType retTypeSym = header->gettype() ? header->gettype()->getsymbol() : TYPE_FUNC;
-        st.insert(originalName, TYPE_FUNC, retTypeSym);
-    }
+        funcEntry = st.lookupCurrentScope(originalName);
+        if (funcEntry == nullptr) {
+            SymbolType retTypeSym = header->gettype() ? header->gettype()->getsymbol() : TYPE_FUNC;
+            st.insert(originalName, TYPE_FUNC, retTypeSym);
+            funcEntry = st.lookupCurrentScope(originalName);
+        }
+        
+        if (funcEntry) {
+            funcEntry->captured_vars = this->saved_captured_vars;
+            funcEntry->captured_types = this->saved_captured_types;
+        }
 
-    SymbolEntry *funcEntry = st.lookup(originalName);
+        // Αν το TheFunction φτιάχτηκε ήδη από decl, το παίρνουμε από το alloca_ptr!
+        if (funcEntry && funcEntry->alloca_ptr) {
+            TheFunction = llvm::cast<llvm::Function>(funcEntry->alloca_ptr);
+            returnType = TheFunction->getReturnType();
+        } else {
+            std::string llvmName = originalName + "_" + std::to_string(func_id_counter++);
+            
+            std::vector<llvm::Type*> argTypes;
+            if (header->getOpt_Fpar() != nullptr) {
+                auto paramInfo = header->getOpt_Fpar()->getParams();
+                for (const auto& param : paramInfo) {
+                    if (param.second == TYPE_INT) argTypes.push_back(llvm::Type::getInt32Ty(TheContext));
+                    else if (param.second == TYPE_BYTE) argTypes.push_back(llvm::Type::getInt8Ty(TheContext));
+                    else if (param.second == TYPE_REF_INT) argTypes.push_back(llvm::PointerType::getUnqual(llvm::Type::getInt32Ty(TheContext)));
+                    else if (param.second == TYPE_REF_BYTE) argTypes.push_back(llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext)));
+                    else argTypes.push_back(getLLVMType(param.second));
+                }
+            }
 
-    if (funcEntry) {
-        funcEntry->captured_vars = this->saved_captured_vars;
-        funcEntry->captured_types = this->saved_captured_types;
+            if (funcEntry) {
+                for (SymbolType capType : funcEntry->captured_types) {
+                    llvm::Type *baseTy = getLLVMType(capType);
+                    argTypes.push_back(llvm::PointerType::getUnqual(baseTy));
+                }
+            }
+
+            returnType = header->gettype() ? getLLVMType(header->gettype()->getsymbol()) : llvm::Type::getVoidTy(TheContext);
+            llvm::FunctionType *FT = llvm::FunctionType::get(returnType, argTypes, false);
+            TheFunction = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, llvmName, TheModule.get());
+            
+            if (funcEntry) {
+                funcEntry->alloca_ptr = TheFunction;
+            }
+        }
     }
 
     // 1. Άνοιγμα νέου scope για τη συνάρτηση 
     st.openScope();
 
-    // 2. Προετοιμασία τύπων παραμέτρων
-    std::vector<llvm::Type*> argTypes;
     std::vector<std::pair<std::string, SymbolType>> paramInfo;
-    
     if (header->getOpt_Fpar() != nullptr) {
         paramInfo = header->getOpt_Fpar()->getParams();
-        for (const auto& param : paramInfo) {
-            if (param.second == TYPE_INT) {
-                argTypes.push_back(llvm::Type::getInt32Ty(TheContext));
-            } else if (param.second == TYPE_BYTE) {
-                argTypes.push_back(llvm::Type::getInt8Ty(TheContext));
-            } else if (param.second == TYPE_REF_INT) {
-                argTypes.push_back(llvm::PointerType::getUnqual(llvm::Type::getInt32Ty(TheContext)));
-            } else if (param.second == TYPE_REF_BYTE) {
-                argTypes.push_back(llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext)));
-            } else {
-                llvm::Type *paramType = getLLVMType(param.second);
-                argTypes.push_back(paramType);
-            }
-        }
-
     }
-
-    if (funcEntry) {
-            for (SymbolType capType : funcEntry->captured_types) {
-                llvm::Type *baseTy = getLLVMType(capType);
-                argTypes.push_back(llvm::PointerType::getUnqual(baseTy));
-            }
-    }
-
-    // --- ΒΗΜΑ 3: Δημιουργία συνάρτησης ---
-    llvm::Type *returnType = (llvmName == "main") ? llvm::Type::getInt32Ty(TheContext) : 
-        (header->gettype() ? getLLVMType(header->gettype()->getsymbol()) : llvm::Type::getVoidTy(TheContext));
-
-    llvm::FunctionType *FT = llvm::FunctionType::get(returnType, argTypes, false);
-    llvm::Function *TheFunction = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, llvmName, TheModule.get());
-
-    // Συνδέουμε το αρχικό όνομα
-    if (funcEntry) {
-        FuncPointers[funcEntry] = TheFunction;
-    }
-
+    
     unsigned idx = 0;
     for (auto &Arg : TheFunction->args()) {
         if (idx < paramInfo.size()) Arg.setName(paramInfo[idx].first);
         idx++;
     }
 
-    // 4. Αποθήκευση του τρέχοντος Insert Point
+    // Αποθήκευση του τρέχοντος Insert Point
     llvm::BasicBlock *prevBB = Builder.GetInsertBlock();
 
-    // 5. Δημιουργία Entry Block 
+    // Δημιουργία Entry Block 
     llvm::BasicBlock *BB = llvm::BasicBlock::Create(TheContext, "entry", TheFunction);
     Builder.SetInsertPoint(BB);
 
-    // 6. Δέσμευση μνήμης (alloca) για παραμέτρους στην αρχή του entry block 
+    // Δέσμευση μνήμης (alloca) για παραμέτρους στην αρχή του entry block 
     llvm::IRBuilder<> TmpBuilder(&TheFunction->getEntryBlock(), TheFunction->getEntryBlock().begin());
 
     std::map<std::string, std::vector<int>> paramDimsMap;
@@ -665,16 +670,16 @@ llvm::Value* FuncDefBlock::codegen() {
     // Αποθήκευση insert point
     llvm::BasicBlock *SavedBB = Builder.GetInsertBlock();
 
-    // 7. Παραγωγή κώδικα για τοπικούς ορισμούς (εδώ μπαίνουν οι nested functions) 
+    // Παραγωγή κώδικα για τοπικούς ορισμούς (εδώ μπαίνουν οι nested functions) 
     if (localDefList) localDefList->codegen();
 
     // Επαναφορά του Builder
     Builder.SetInsertPoint(SavedBB);
 
-    // 8. Παραγωγή κώδικα για τις εντολές της συνάρτησης 
+    // Παραγωγή κώδικα για τις εντολές της συνάρτησης 
     if (stmt_list) stmt_list->codegen();
 
-    // --- ΒΗΜΑ 9: Διαχείριση Return ---
+    // --- Διαχείριση Return ---
     if (!Builder.GetInsertBlock()->getTerminator()) {
         if (originalName == "main") {
             Builder.CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(TheContext), 0));
@@ -720,15 +725,11 @@ llvm::Value* Proc_Call::codegen() {
     // 1. Βρες τη συνάρτηση
     SymbolEntry *e = st.lookup(id->getName());
     llvm::Function *CalleeF = nullptr;
-    if (e && FuncPointers.count(e)) {
-        CalleeF = FuncPointers[e];
-    } else {
-        CalleeF = TheModule->getFunction(id->getName()); // Fallback
+    if (e && e->alloca_ptr) {
+        CalleeF = llvm::cast<llvm::Function>(e->alloca_ptr);
     }
-
     if (!CalleeF) {
-        std::cerr << "Unknown function referenced: " << id->getName() << "\n";
-        return nullptr;
+        CalleeF = TheModule->getFunction(id->getName()); // Fallback (π.χ. για built-ins)
     }
 
     // 2. Prepare the arguments
@@ -919,8 +920,54 @@ llvm::Value* ContStmt::codegen() {
     Builder.SetInsertPoint(DeadBB);
     return nullptr;
 }
-llvm::Value* FuncDecl::codegen() { return nullptr; }
 
+llvm::Value* FuncDecl::codegen() {
+    if (!hd) return nullptr;
+    std::string originalName = hd->getName();
+    
+    SymbolEntry *existing = st.lookupCurrentScope(originalName);
+    if (existing == nullptr) {
+        SymbolType ret = hd->gettype() ? hd->gettype()->getsymbol() : TYPE_FUNC;
+        st.insert(originalName, TYPE_FUNC, ret);
+        existing = st.lookupCurrentScope(originalName);
+    }
+
+    // Αν υπάρχει ήδη το prototype, απλά το επιστρέφουμε!
+    if (existing && existing->alloca_ptr) {
+        return existing->alloca_ptr;
+    }
+
+    std::string llvmName = originalName + "_decl_" + std::to_string(func_id_counter++);
+    
+    std::vector<llvm::Type*> argTypes;
+    std::vector<std::pair<std::string, SymbolType>> paramInfo;
+    if (hd->getOpt_Fpar() != nullptr) {
+        paramInfo = hd->getOpt_Fpar()->getParams();
+        for (const auto& param : paramInfo) {
+            if (param.second == TYPE_INT) argTypes.push_back(llvm::Type::getInt32Ty(TheContext));
+            else if (param.second == TYPE_BYTE) argTypes.push_back(llvm::Type::getInt8Ty(TheContext));
+            else if (param.second == TYPE_REF_INT) argTypes.push_back(llvm::PointerType::getUnqual(llvm::Type::getInt32Ty(TheContext)));
+            else if (param.second == TYPE_REF_BYTE) argTypes.push_back(llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(TheContext)));
+            else argTypes.push_back(getLLVMType(param.second));
+        }
+    }
+    
+    llvm::Type *returnType = hd->gettype() ? getLLVMType(hd->gettype()->getsymbol()) : llvm::Type::getVoidTy(TheContext);
+    llvm::FunctionType *FT = llvm::FunctionType::get(returnType, argTypes, false);
+    llvm::Function *TheFunction = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, llvmName, TheModule.get());
+
+    unsigned idx = 0;
+    for (auto &Arg : TheFunction->args()) {
+        if (idx < paramInfo.size()) Arg.setName(paramInfo[idx].first);
+        idx++;
+    }
+
+    if (existing) {
+        existing->alloca_ptr = TheFunction; // Αποθήκευση στο SymbolTable
+    }
+
+    return TheFunction;
+}
 llvm::Value* Bool::codegen() {
     return llvm::ConstantInt::get(llvm::Type::getInt8Ty(TheContext), flag ? 1 : 0);
 }
