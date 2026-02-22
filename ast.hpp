@@ -466,6 +466,8 @@ public:
     }
 
     virtual llvm::Value* codegen() override;
+
+    virtual bool has_return() const { return false; }
 };
 
 class StmtList : public Stmt {
@@ -502,6 +504,14 @@ class StmtList : public Stmt {
             for (Stmt *st : stmt_list)
                 st->sem();
         }
+
+        virtual bool has_return() const override {
+        for (Stmt* s : stmt_list) {
+            if (s->has_return()) return true;
+        }
+        return false;
+    }
+
     private:
         std::vector<Stmt*> stmt_list;
     };
@@ -563,6 +573,10 @@ public:
         else st.insert(ID, SymbolType::LOOP);
         if (loop_stmt_list) loop_stmt_list->sem();
         st.closeScope();
+    }
+
+    virtual bool has_return() const override {
+        return loop_stmt_list ? loop_stmt_list->has_return() : false;
     }
 
 private:
@@ -849,6 +863,16 @@ inline void FuncDefBlock::sem() {
     
     if (localDefList) localDefList->sem();
     if (stmt_list) stmt_list->sem();
+
+    if (header && header->gettype() != nullptr) {
+        if (!stmt_list || !stmt_list->has_return()) {
+            std::string msg = "Semantic Error: Function '" + header->getName() + 
+                              "' is expected to return a value, but not all execution paths contain a return statement.";
+            yyerror(msg.c_str());
+            exit(1);
+        }
+    }
+
     if (funcEntry) {
         this->saved_captured_vars = funcEntry->captured_vars;
         this->saved_captured_types = funcEntry->captured_types;
@@ -1368,6 +1392,9 @@ public:
             }
         }
     }
+
+    virtual bool has_return() const override { return true; }
+
 private:
     Expr *e;
 };      
@@ -1637,6 +1664,16 @@ public:
         st.closeScope();
     }
 
+    virtual bool has_return() const override {
+        bool current_returns = stmts ? stmts->has_return() : false;
+        
+        if (condition == nullptr && elif_else == nullptr) {
+            return current_returns;
+        }
+        bool next_returns = elif_else ? elif_else->has_return() : false;
+        return current_returns && next_returns;
+    }
+
 private:
     Cond *condition;
     StmtList *stmts;
@@ -1668,6 +1705,12 @@ public:
         if(stmts) stmts->sem();
         if(elif_else!=nullptr) elif_else->sem();
         st.closeScope();
+    }
+
+    virtual bool has_return() const override {
+        bool if_returns = stmts ? stmts->has_return() : false;
+        bool else_returns = elif_else ? elif_else->has_return() : false;
+        return if_returns && else_returns;
     }
 
 private:
