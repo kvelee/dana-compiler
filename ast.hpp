@@ -831,7 +831,7 @@ inline void FuncDefBlock::printOn(std::ostream &out) const {
 inline void FuncDefBlock::sem() {
 
     // Added some checks for the main function 
-    bool isMain = !st.hasScope();
+    bool isMain = active_functions.empty();
     
     if (isMain) {
         if (header->gettype() != nullptr) {
