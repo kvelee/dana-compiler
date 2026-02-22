@@ -951,6 +951,8 @@ public:
 
     virtual void sem() override {}
 
+    char getValue() const { return character; }
+
 private:
     char character;
 
@@ -1376,16 +1378,24 @@ public:
 
 
     virtual void sem() override {
-        if (single != nullptr) {
-            single->sem(); 
-            if (single->getsymbol() != TYPE_BOOL) {
-                yyerror("Semantic Error: Condition must be of boolean type");
-                exit(1);
-            }
-            symboltype = TYPE_BOOL;
-            return;
-        }
 
+        if (single != nullptr) {
+            single->sem();
+            
+            if (dynamic_cast<Bool*>(single) != nullptr) {
+                symboltype = TYPE_BOOL; 
+                return;
+            }
+
+            if (single->getsymbol() == TYPE_BOOL) {
+                symboltype = TYPE_BOOL;
+                return;
+            }
+
+            yyerror("Semantic Error: Only literal 'true'/'false' or comparison expressions are allowed as conditions.");
+            exit(1);
+        }
+        
         if (left) left->sem();
         if (right) right->sem();
 
