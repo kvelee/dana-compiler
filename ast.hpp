@@ -1395,7 +1395,7 @@ public:
             yyerror("Semantic Error: Only literal 'true'/'false' or comparison expressions are allowed as conditions.");
             exit(1);
         }
-        
+
         if (left) left->sem();
         if (right) right->sem();
 
@@ -1405,7 +1405,12 @@ public:
         // Συγκριτικοί τελεστές μεταξύ αριθμών: <, >, <=, >=, =, <>
         if (oper == "<" || oper == ">" || oper == "<=" || oper == ">=" || oper == "=" || oper == "<>") {
             if (lt != rt) {
-                yyerror("Semantic Error: Comparison operands must be of the same type");
+                yyerror("Semantic Error: Operands must be of the same type for comparison.");
+                exit(1);
+            }
+            
+            if (lt != TYPE_INT && lt != TYPE_BYTE) {
+                yyerror("Semantic Error: Relational operators apply only to numeric types (int or byte).");
                 exit(1);
             }
             symboltype = TYPE_BOOL;
