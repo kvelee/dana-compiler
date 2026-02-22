@@ -23,8 +23,15 @@ unsigned int white_count(char* line) {
 int process_indent(char* line) {
     current_indent = white_count(line);
     
-    if (*line == '\n' || *line == '\r' || *line == '#' || *line == '\0')
+    char* actual_char = line;
+    while (*actual_char == ' ' || *actual_char == '\t') {
+        actual_char++;
+    }
+
+    if (*actual_char == '\n' || *actual_char == '\r' || *actual_char == '#' || *actual_char == '\0' || 
+       (*actual_char == '(' && *(actual_char + 1) == '*')) {
         return 0;
+    }
 
     int dedent_count = 0;
     

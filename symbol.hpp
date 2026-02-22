@@ -33,7 +33,10 @@ struct SymbolEntry {
     SymbolType type;
     SymbolType return_value;
     std::vector<SymbolType> param_types;
+    std::vector<int> param_dims;
     bool is_array;
+    int num_dims; 
+
     //=====
     llvm::Value *alloca_ptr = nullptr;
     SymbolEntry* owner_func = nullptr;
@@ -41,7 +44,7 @@ struct SymbolEntry {
     std::vector<SymbolType> captured_types;
     //=====
     SymbolEntry () {}
-    SymbolEntry(SymbolType t, SymbolType rv = TYPE_INVALID, std::vector<SymbolType> pt = {}, bool isArr = false) {
+    SymbolEntry(SymbolType t, SymbolType rv = TYPE_INVALID, std::vector<SymbolType> pt = {}, bool isArr = false, int n_dims =0, std::vector<int> pd = {}) {
         switch (t) {
             case TYPE_FUNC:
                 if (rv == TYPE_INT || rv == TYPE_BYTE || rv == TYPE_BOOL\
@@ -97,6 +100,8 @@ struct SymbolEntry {
         }
         param_types = pt;
         is_array = isArr;
+        num_dims = n_dims;
+        param_dims = pd;
     }
 
     int value;
@@ -113,9 +118,9 @@ public:
         return &locals[s];
     }
     
-    void insert(std::string s, SymbolType stt, SymbolType rv = TYPE_INVALID, std::vector<SymbolType> pt = {}, bool isArr = false) {
+    void insert(std::string s, SymbolType stt, SymbolType rv = TYPE_INVALID, std::vector<SymbolType> pt = {}, bool isArr = false, int n_dims =0, std::vector<int> pd = {}) {
         if(locals.find(s) != locals.end()) yyerror(("Duplicate variable! " + s).c_str());
-        locals[s] = SymbolEntry(stt, rv, pt, isArr);
+        locals[s] = SymbolEntry(stt, rv, pt, isArr, n_dims, pd);
         locals[s].name = s;
     }
 
@@ -222,8 +227,8 @@ public:
     std::cout << "==================================\n";
 }
 
-    void insert(std::string s, SymbolType stt, SymbolType rv = TYPE_INVALID, std::vector<SymbolType> pt = {}, bool isArr = false){
-        scopes.back().insert(s, stt, rv, pt, isArr);
+    void insert(std::string s, SymbolType stt, SymbolType rv = TYPE_INVALID, std::vector<SymbolType> pt = {}, bool isArr = false, int n_dims=0, std::vector<int> pd = {}){
+        scopes.back().insert(s, stt, rv, pt, isArr, n_dims, pd);
     }
 
     void openScope() {

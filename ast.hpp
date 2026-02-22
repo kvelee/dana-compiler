@@ -201,6 +201,11 @@ public:
     if(e) {
         
         symboltype = e->return_value;
+        
+        if (e->is_array || e->num_dims > 0) {
+            if (symboltype == TYPE_INT) symboltype = TYPE_REF_INT;
+            else if (symboltype == TYPE_BYTE) symboltype = TYPE_REF_BYTE;
+        }
 
         if (!active_functions.empty()) {
                 SymbolEntry* current_func = active_functions.back();
@@ -310,10 +315,11 @@ public:
         std::vector<Id *> temp = id_list.getIds();
         for(Id *idd : temp) {
             if (array_type != nullptr){
-                st.insert(idd->getName(), TYPE_PARAM, array_type->getsymbol(), {}, true);
+                int dims = array_type->getDims().size(); 
+                st.insert(idd->getName(), TYPE_PARAM, array_type->getsymbol(), {}, true, dims);
             }
             else {
-                st.insert(idd->getName(), TYPE_PARAM, data_type, {}, false);
+                st.insert(idd->getName(), TYPE_PARAM, data_type, {}, false,0);
             }
 
             SymbolEntry *e = st.lookup(idd->getName());
@@ -358,6 +364,23 @@ public:
         return result;
     }
 
+    std::vector<int> getParamDims() const {
+        std::vector<int> result;
+        std::vector<Id *> ids = const_cast<Id_List&>(id_list).getIds();
+        for (Id *id : ids) {
+            if (array_type != nullptr) {
+                result.push_back(array_type->getDims().size());
+            } else {
+                result.push_back(0); // Scalar ή ref int έχουν 0 διαστάσεις
+            }
+        }
+        if (next != nullptr) {
+            auto nextRes = next->getParamDims();
+            result.insert(result.end(), nextRes.begin(), nextRes.end());
+        }
+        return result;
+    }
+
 private:
     Id_List id_list; 
     SymbolType data_type;
@@ -387,16 +410,23 @@ public:
     virtual void sem() override {
 
         std::vector<SymbolType> paramTypes;
+        std::vector<int> paramDims;
         if (oft != nullptr) {
             auto params = oft->getParams();
             for (auto &p : params) {
                 paramTypes.push_back(p.second);
+                paramDims = oft->getParamDims();
             }
         }
 
         if (tp != nullptr) {
             tp->sem();
-            st.insert(Id_val->getName(), TYPE_FUNC, tp->getsymbol(), paramTypes);
+            if (!tp->getDims().empty()) {
+                std::string msg = "Semantic Error: Function '" + Id_val->getName() + 
+                                  "' cannot return an array.";
+                yyerror(msg.c_str());
+                exit(1);
+            }
         }
         else {
             st.insert(Id_val->getName(), TYPE_FUNC, TYPE_FUNC, paramTypes);
@@ -641,14 +671,25 @@ public:
 
     virtual void sem() override {
         std::vector<SymbolType> paramTypes;
+        std::vector<int> paramDims;
         if (hd && hd->getOpt_Fpar() != nullptr) {
             auto params = hd->getOpt_Fpar()->getParams();
             for (auto &p : params) {
                 paramTypes.push_back(p.second);
             }
+            paramDims = hd->getOpt_Fpar()->getParamDims();
         }
+        
+        if (hd && hd->gettype() != nullptr && !hd->gettype()->getDims().empty()) {
+            std::string msg = "Semantic Error: Function '" + hd->getName() + 
+                              "' cannot return an array.";
+            yyerror(msg.c_str());
+            exit(1);
+        }
+
+        
         SymbolType ret = (hd && hd->gettype()) ? hd->gettype()->getsymbol() : TYPE_FUNC;
-        st.insert(hd->getName(), TYPE_FUNC, ret, paramTypes);
+        st.insert(hd->getName(), TYPE_FUNC, ret, paramTypes, false, 0, paramDims);
     }
 
 private:
@@ -692,7 +733,8 @@ public:
             for (Id* id : temp){
                 SymbolType t = tp->getsymbol();
                 bool isArr = (tp->getDims().size() > 0);
-                st.insert(id->getName(), t, t, {}, isArr);
+                int dims = tp->getDims().size();
+                st.insert(id->getName(), t, t, {}, isArr,dims);
 
                 SymbolEntry *e = st.lookup(id->getName());
                 if (e && !active_functions.empty()) {
@@ -770,16 +812,26 @@ inline void FuncDefBlock::sem() {
     }
 
     std::vector<SymbolType> paramTypes;
+    std::vector<int> paramDims;
     if (header && header->getOpt_Fpar() != nullptr) {
         auto params = header->getOpt_Fpar()->getParams();
         for (auto &p : params) {
             paramTypes.push_back(p.second);
         }
+        paramDims = header->getOpt_Fpar()->getParamDims();
     }
 
     if (header) {
+
+        if (header->gettype() != nullptr && !header->gettype()->getDims().empty()) {
+        std::string msg = "Semantic Error: Function '" + header->getName() + 
+                          "' cannot return an array.";
+        yyerror(msg.c_str());
+        exit(1);
+        }
+
         SymbolType ret = header->gettype() ? header->gettype()->getsymbol() : TYPE_FUNC;
-        st.insert(header->getName(), TYPE_FUNC, ret, paramTypes);
+        st.insert(header->getName(), TYPE_FUNC, ret, paramTypes, false, 0, paramDims);
     }
 
     SymbolEntry *funcEntry = st.lookup(header->getName());
@@ -884,8 +936,10 @@ public:
             symboltype = TYPE_INVALID;
         }
 
+        int declared_dims = (e != nullptr) ? e->num_dims : (!str.empty() ? 1 : 0);
+        int provided_indices = 0;
+
         if (expr_list) {
-            // 1. Έλεγχος αν η μεταβλητή είναι όντως πίνακας
             if (e != nullptr && !e->is_array && str.empty()) {
                 yyerror(("Semantic Error: '" + id->getName() + "' is not an array.").c_str());
                 exit(1);
@@ -893,16 +947,24 @@ public:
 
             expr_list->sem();
 
-            // 2. Έλεγχος των array indexes
             for (Expr* indexExpr : expr_list->getExprs()) {
                 SymbolType it = indexExpr->getsymbol();
-                if (it != TYPE_INT && it != TYPE_BYTE && it != TYPE_REF_INT && it != TYPE_REF_BYTE) {
-                    yyerror("Semantic Error: Array index must be an integer or byte.");
+                if (it != TYPE_INT &&  it != TYPE_REF_INT) {
+                    yyerror("Semantic Error: Array index must be an integer.");
                     exit(1);
                 }
             }
+            provided_indices = expr_list->getExprs().size();
+        }
 
-            // 3. Αποτίμηση του τελικού τύπου
+        if (provided_indices > declared_dims) {
+            yyerror(("Semantic Error: Too many indices for array '" + (id ? id->getName() : "string literal") + "'.").c_str());
+            exit(1);
+        }
+
+        is_array_result = (provided_indices < declared_dims);
+
+        if (!is_array_result) {
             if (symboltype == TYPE_REF_INT) symboltype = TYPE_INT;
             else if (symboltype == TYPE_REF_BYTE) symboltype = TYPE_BYTE;
         }
@@ -914,11 +976,13 @@ public:
 
     bool hasExprList() const { return expr_list != nullptr; }
     bool isStringLiteral() const { return !str.empty(); }
+    bool isArrayResult() const { return is_array_result; }
 
 private:
     Id *id;
     std::string str;
     ExprList* expr_list;
+    bool is_array_result = false;
 };
 
 class Number : public Expr {
@@ -993,6 +1057,18 @@ public:
     virtual void sem() override {
         if (left) left->sem();
         if (right) right->sem();
+
+        auto check_array_operand = [](Expr* expr) {
+            if (Lvalue *lval = dynamic_cast<Lvalue*>(expr)) {
+                if (lval->isArrayResult()) {
+                    yyerror("Semantic Error: Cannot use an array in arithmetic operations.");
+                    exit(1);
+                }
+            }
+        };
+
+        check_array_operand(left);
+        check_array_operand(right);
 
         SymbolType l = left ? left->getsymbol() : TYPE_INVALID;
         SymbolType r = right ? right->getsymbol() : TYPE_INVALID;
@@ -1122,6 +1198,7 @@ public:
         for (size_t i = 0; i < argExprs.size(); ++i) {
 
             SymbolType expectedT = e->param_types[i];
+            int expectedDims = (i < e->param_dims.size()) ? e->param_dims[i] : 0;
             Expr* actualE = argExprs[i];
 
             if (expectedT == TYPE_REF_INT || expectedT == TYPE_REF_BYTE) {
@@ -1130,6 +1207,29 @@ public:
                              " of function " + id->getName() + 
                              " is passed by reference and requires an l-value.").c_str());
                     exit(1);
+                }
+            }
+
+            if (expectedT != TYPE_REF_INT && expectedT != TYPE_REF_BYTE) {
+                if (Lvalue *lval = dynamic_cast<Lvalue*>(actualE)) {
+                    if (lval->isArrayResult()) {
+                        yyerror("Semantic Error: Cannot pass an array by value to a simple parameter.");
+                        exit(1);
+                    }
+                }
+            }
+
+            if (Lvalue *lval = dynamic_cast<Lvalue*>(actualE)) {
+                if (expectedDims > 0) {
+                    if (!lval->isArrayResult()) {
+                        yyerror("Semantic Error: Expected an array argument, but got a scalar.");
+                        exit(1);
+                    }
+                } else {
+                    if (lval->isArrayResult()) {
+                        yyerror("Semantic Error: Expected a scalar or reference argument, but got an array.");
+                        exit(1);
+                    }
                 }
             }
             actualE->type_check(expectedT);
@@ -1194,6 +1294,7 @@ public:
         for (size_t i = 0; i < argExprs.size(); ++i) {
 
             SymbolType expectedT = e->param_types[i];
+            int expectedDims = (i < e->param_dims.size()) ? e->param_dims[i] : 0;
             Expr* actualE = argExprs[i];
                     
             if (expectedT == TYPE_REF_INT || expectedT == TYPE_REF_BYTE) {
@@ -1204,6 +1305,22 @@ public:
                     exit(1);
                 }
             }
+
+            if (Lvalue *lval = dynamic_cast<Lvalue*>(actualE)) {
+                if (expectedDims > 0) {
+                    if (!lval->isArrayResult()) {
+                        yyerror("Semantic Error: Expected an array argument, but got a scalar.");
+                        exit(1);
+                    }
+                } else {
+                    if (lval->isArrayResult()) {
+                        yyerror("Semantic Error: Expected a scalar or reference argument, but got an array.");
+                        exit(1);
+                    }
+                }
+            }
+
+            // 3. Τελικός έλεγχος βασικού τύπου (int/byte)
             actualE->type_check(expectedT);
         }
 
@@ -1232,6 +1349,14 @@ public:
         SymbolEntry *function_entry = st.lookup("$$ret$$"); 
         if(function_entry != nullptr) {
             if (e) {
+                e->sem();
+
+                if (Lvalue *lval = dynamic_cast<Lvalue*>(e)) {
+                    if (lval->isArrayResult()) {
+                        yyerror("Semantic Error: Cannot return an array variable.");
+                        exit(1);
+                    }
+                }
                 if (function_entry->return_value == TYPE_FUNC) {
                     yyerror("Semantic Error: Cannot return a value from a procedure (void function).");
                     exit(1);
@@ -1296,29 +1421,23 @@ public:
     virtual llvm::Value* codegen() override;
 
     virtual void sem() override {
-        if(l) l->sem();
-        if(e) e->sem();
+        if (l) l->sem();
+        if (e) e->sem();
 
-        if (l->isStringLiteral()) {
-            yyerror("Semantic Error: Cannot assign to a string literal constant.");
-            exit(1);
-        }
-        
-        SymbolEntry *leftEntry = st.lookup(l->getIdName());
-        
-        if (leftEntry && leftEntry->is_array && !l->hasExprList()) {
+        // 1. Έλεγχος Αριστερού Μέλους: Δεν μπορούμε να αναθέσουμε σε πίνακα!
+        if (l->isArrayResult()) {
             yyerror("Semantic Error: Cannot assign directly to an array. Use strcpy for strings.");
             exit(1);
         }
+        if (l->isStringLiteral() && !l->hasExprList()) {
+            yyerror("Semantic Error: Cannot assign to a string literal constant.");
+            exit(1);
+        }
 
+        // 2. Έλεγχος Δεξιού Μέλους: Δεν μπορούμε να πάρουμε τιμή από πίνακα!
         if (Lvalue *rval = dynamic_cast<Lvalue*>(e)) {
-            SymbolEntry *rightEntry = st.lookup(rval->getIdName());
-            if (rightEntry && rightEntry->is_array && !rval->hasExprList()) {
+            if (rval->isArrayResult()) {
                 yyerror("Semantic Error: Cannot assign from an array.");
-                exit(1);
-            }
-            if (rval->isStringLiteral()) {
-                yyerror("Semantic Error: Cannot assign from a string literal. Use strcpy.");
                 exit(1);
             }
         }
@@ -1326,7 +1445,6 @@ public:
         SymbolType lt = l->getsymbol();
         e->type_check(lt);
     }
-
     private:
     Lvalue *l;
     Expr *e;
@@ -1399,17 +1517,32 @@ public:
         if (left) left->sem();
         if (right) right->sem();
 
+        auto check_array_operand = [](Expr* expr) {
+            if (Lvalue *lval = dynamic_cast<Lvalue*>(expr)) {
+                if (lval->isArrayResult()) {
+                    yyerror("Semantic Error: Arrays cannot be used in comparisons.");
+                    exit(1);
+                }
+            }
+        };
+
+        if (left) check_array_operand(left);
+        if (right) check_array_operand(right);
+
         SymbolType lt = left ? left->getsymbol() : TYPE_INVALID;
         SymbolType rt = right ? right->getsymbol() : TYPE_INVALID;
 
+        SymbolType baseL = (lt == TYPE_REF_INT) ? TYPE_INT : ((lt == TYPE_REF_BYTE) ? TYPE_BYTE : lt);
+        SymbolType baseR = (rt == TYPE_REF_INT) ? TYPE_INT : ((rt == TYPE_REF_BYTE) ? TYPE_BYTE : rt);
+
         // Συγκριτικοί τελεστές μεταξύ αριθμών: <, >, <=, >=, =, <>
         if (oper == "<" || oper == ">" || oper == "<=" || oper == ">=" || oper == "=" || oper == "<>") {
-            if (lt != rt) {
+            if (baseL != baseR) {
                 yyerror("Semantic Error: Operands must be of the same type for comparison.");
                 exit(1);
             }
-            
-            if (lt != TYPE_INT && lt != TYPE_BYTE) {
+
+            if (baseL != TYPE_INT && baseL != TYPE_BYTE) {
                 yyerror("Semantic Error: Relational operators apply only to numeric types (int or byte).");
                 exit(1);
             }

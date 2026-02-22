@@ -335,7 +335,12 @@ llvm::Value* Id::codegen() {
 llvm::Value* Lvalue::codegen() {
     llvm::Value *Ptr = getPointer();
     if (!Ptr) return nullptr;
-    if (!str.empty()) return Ptr;
+    if (!str.empty()) {
+        if (expr_list != nullptr) {
+            return Builder.CreateLoad(llvm::Type::getInt8Ty(TheContext), Ptr, "str_char_val");
+        }
+        return Ptr;
+    }
 
     SymbolEntry *entry = st.lookup(id->getName());
     if (!entry) return nullptr;
