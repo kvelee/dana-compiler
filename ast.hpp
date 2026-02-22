@@ -314,9 +314,18 @@ public:
     virtual void sem() override {
         std::vector<Id *> temp = id_list.getIds();
         for(Id *idd : temp) {
-            if (array_type != nullptr){
+            if (array_type != nullptr) {
                 int dims = array_type->getDims().size(); 
                 st.insert(idd->getName(), TYPE_PARAM, array_type->getsymbol(), {}, true, dims);
+                
+                auto dms = array_type->getDims();
+                
+                for (size_t i = 1; i < dms.size(); ++i) {
+                    if (dms[i] <= 0) {
+                        yyerror("Semantic Error: Inner array dimensions must be strictly positive.");
+                        exit(1);
+                    }
+                }
             }
             else {
                 st.insert(idd->getName(), TYPE_PARAM, data_type, {}, false,0);
@@ -913,7 +922,7 @@ inline void FuncDefBlock::sem() {
     if (header && header->gettype() != nullptr) {
         if (!stmt_list || !stmt_list->has_return()) {
             std::string msg = "Semantic Error: Function '" + header->getName() + 
-                              "' is expected to return a value, but not all execution paths contain a return statement.";
+                              "' is expected to return a value, but no return statement was found.";
             yyerror(msg.c_str());
             exit(1);
         }
@@ -1717,7 +1726,7 @@ public:
             return current_returns;
         }
         bool next_returns = elif_else ? elif_else->has_return() : false;
-        return current_returns && next_returns;
+        return current_returns || next_returns;
     }
 
 private:
@@ -1756,7 +1765,7 @@ public:
     virtual bool has_return() const override {
         bool if_returns = stmts ? stmts->has_return() : false;
         bool else_returns = elif_else ? elif_else->has_return() : false;
-        return if_returns && else_returns;
+        return if_returns || else_returns;
     }
 
 private:
