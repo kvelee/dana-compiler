@@ -10,6 +10,7 @@
 
 
 extern int yylineno;
+extern std::vector<SymbolEntry*> active_functions;
 
 namespace llvm {
     class Value;
@@ -141,10 +142,6 @@ public:
         sem();
         if(symboltype!=symbolt) {
 
-            // --- Επιτρέπουμε μίξη int <-> byte ---
-            if ((symbolt == TYPE_INT && symboltype == TYPE_BYTE) ||
-                (symbolt == TYPE_BYTE && symboltype == TYPE_INT)) return;
-
             // Επιτρέπουμε ref types
             if ((symbolt == TYPE_REF_INT && symboltype == TYPE_INT) || 
                 (symbolt == TYPE_INT && symboltype == TYPE_REF_INT)) return;
@@ -201,9 +198,27 @@ public:
 
     virtual void sem() {
     SymbolEntry *e = st.lookup(id);
-    if(e!=nullptr) {
+    if(e) {
         
         symboltype = e->return_value;
+
+        if (!active_functions.empty()) {
+                SymbolEntry* current_func = active_functions.back();
+                if (e->owner_func != nullptr && e->owner_func != current_func && e->owner_func->name != "main") {
+                    
+                    bool found_owner = false;
+                    for (SymbolEntry* f : active_functions) {
+                        if (f == e->owner_func) found_owner = true;
+                        else if (found_owner) {
+                            if (std::find(f->captured_vars.begin(), f->captured_vars.end(), id) == f->captured_vars.end()) {
+                                f->captured_vars.push_back(id);
+                                f->captured_types.push_back(e->type);
+                            }
+                        }
+                    }
+                }
+            }
+            
     } else {
         yyerror(("Identifier " + id + " not declared (Line " + std::to_string(yylineno) + ")").c_str()); 
         symboltype = TYPE_INVALID;
@@ -299,6 +314,11 @@ public:
             }
             else {
                 st.insert(idd->getName(), TYPE_PARAM, data_type, {}, false);
+            }
+
+            SymbolEntry *e = st.lookup(idd->getName());
+            if (e && !active_functions.empty()) {
+                e->owner_func = active_functions.back();
             }
         }
         if(next!=nullptr) next->sem();
@@ -599,6 +619,9 @@ public:
     // Declaration only - definition comes later, same as above
     virtual void sem() override ;
 
+    std::vector<std::string> saved_captured_vars;
+    std::vector<SymbolType> saved_captured_types;
+
 private:
     Header *header;
     LocalDefList *localDefList;
@@ -670,6 +693,11 @@ public:
                 SymbolType t = tp->getsymbol();
                 bool isArr = (tp->getDims().size() > 0);
                 st.insert(id->getName(), t, t, {}, isArr);
+
+                SymbolEntry *e = st.lookup(id->getName());
+                if (e && !active_functions.empty()) {
+                    e->owner_func = active_functions.back();
+                }
             }
         }
     }
@@ -754,6 +782,9 @@ inline void FuncDefBlock::sem() {
         st.insert(header->getName(), TYPE_FUNC, ret, paramTypes);
     }
 
+    SymbolEntry *funcEntry = st.lookup(header->getName());
+    if (funcEntry) active_functions.push_back(funcEntry);
+
     st.openScope(); // Άνοιγμα scope για το σώμα της συνάρτησης
     
     // Κρυφό σημάδι για να βρίσκουμε ΠΑΝΤΑ το σωστό return type της συνάρτησης!
@@ -766,6 +797,12 @@ inline void FuncDefBlock::sem() {
     
     if (localDefList) localDefList->sem();
     if (stmt_list) stmt_list->sem();
+    if (funcEntry) {
+        this->saved_captured_vars = funcEntry->captured_vars;
+        this->saved_captured_types = funcEntry->captured_types;
+        
+        active_functions.pop_back();
+    }
     st.closeScope();
 }
 
@@ -1051,14 +1088,21 @@ public:
             yyerror("Function call with null id");
             symboltype = TYPE_INVALID; 
             return; 
-        }   
+        }
+
         SymbolEntry *e = st.lookup(id->getName());
         if (e == nullptr) {
-            yyerror(("Function/Procedure " + id->getName() + " not declared").c_str());
+            yyerror(("Function " + id->getName() + " not declared").c_str());
             exit(1); 
         }
+
         if (e->type != TYPE_FUNC){
             yyerror((id->getName() + " is not a function").c_str());
+            exit(1);
+        }
+
+        if (e->return_value == TYPE_FUNC) {
+            yyerror(("Semantic Error: '" + id->getName() + "' is a procedure (no return type) and cannot be called with function syntax '()'").c_str());
             exit(1);
         }
         if (list) list->sem();
@@ -1120,12 +1164,19 @@ public:
         }
         SymbolEntry *e = st.lookup(id->getName());
         if (e == nullptr) {
-            yyerror(("Function/Procedure " + id->getName() + " not declared").c_str());
+            yyerror(("Procedure " + id->getName() + " not declared").c_str());
             exit(1);
         }
-        if (e->type != TYPE_FUNC)
-            yyerror((id->getName() + " is not a function").c_str());
 
+        if (e->type != TYPE_FUNC) {
+            yyerror((id->getName() + " is not a function").c_str());
+            exit(1);
+        }
+
+        if (e->return_value != TYPE_FUNC) {
+            yyerror(("Semantic Error: '" + id->getName() + "' is a function (returns a value) and must be called with parentheses '()'").c_str());
+            exit(1);
+        }
         if (list) list->sem();
 
         std::vector<Expr*> argExprs;
@@ -1343,6 +1394,10 @@ public:
 
         // Συγκριτικοί τελεστές μεταξύ αριθμών: <, >, <=, >=, =, <>
         if (oper == "<" || oper == ">" || oper == "<=" || oper == ">=" || oper == "=" || oper == "<>") {
+            if (lt != rt) {
+                yyerror("Semantic Error: Comparison operands must be of the same type");
+                exit(1);
+            }
             symboltype = TYPE_BOOL;
             return;
         }

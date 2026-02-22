@@ -179,16 +179,13 @@ FuncDefBlock *programRoot = nullptr;
 %type<exlst> expr_list
 %type<ifblck> if_stmts
 
-%nonassoc "def" "if" "loop" "break" "continue" "return"
-%nonassoc '=' "<>" '<' '>' "<=" ">=" '!'
 %left "or"
 %left "and"
-%left '|'
-%left '&'
-%left '+' '-'
-%left '*' '/' '%' 
-%nonassoc "not"  '(' ')'
-
+%nonassoc "not"
+%nonassoc '=' "<>" '<' '>' "<=" ">="
+%left '+' '-' '|'
+%left '*' '/' '%' '&'
+%nonassoc '!' UMINUS UPLUS
 %%
 program:
     func_def { 
@@ -325,8 +322,8 @@ expr:
     | l_value                 { $$ = $1; }
     | '(' expr ')'            { $$ = $2; }
     | func_call               { $$ = $1; }
-    | '+' expr                { $$ = new UniOp('+', $2); }
-    | '-' expr                { $$ = new UniOp('-', $2); }
+    | '+' expr  %prec UPLUS   { $$ = new UniOp('+', $2); }
+    | '-' expr  %prec UMINUS  { $$ = new UniOp('-', $2); }
     | expr '+' expr           { $$ = new BinOp($1,'+', $3); }
     | expr '-' expr           { $$ = new BinOp($1,'-', $3); }
     | expr '*' expr           { $$ = new BinOp($1,'*', $3); }

@@ -36,6 +36,9 @@ struct SymbolEntry {
     bool is_array;
     //=====
     llvm::Value *alloca_ptr = nullptr;
+    SymbolEntry* owner_func = nullptr;
+    std::vector<std::string> captured_vars;
+    std::vector<SymbolType> captured_types;
     //=====
     SymbolEntry () {}
     SymbolEntry(SymbolType t, SymbolType rv = TYPE_INVALID, std::vector<SymbolType> pt = {}, bool isArr = false) {

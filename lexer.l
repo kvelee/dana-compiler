@@ -37,6 +37,8 @@ int process_indent(char* line) {
 }
 
 int is_guide_token = 0;
+
+int comment_nesting = 0;
 %}
 
 L [A-Za-z]
@@ -45,6 +47,7 @@ D [0-9]
 
 %option noyywrap
 %option yylineno
+%x COMMENT
 
 %%
 
@@ -147,7 +150,27 @@ D [0-9]
 }
 
 \#.*\n { ; }
-\(\*(.|\n)*\*\) { ; }
+
+"(*" { 
+    comment_nesting = 1; 
+    BEGIN(COMMENT); 
+}
+
+<COMMENT>"(*" { 
+    comment_nesting++; 
+}
+
+<COMMENT>"*)" { 
+    comment_nesting--; 
+    if (comment_nesting == 0) BEGIN(INITIAL);
+}
+
+<COMMENT>.|\n {;}
+
+<COMMENT><<EOF>> { 
+    yyerror("Unclosed comment");
+    return 1; 
+}
 
 [\+\-\*\/\%\!\&\|\=\<\>\:] { return yytext[0]; }
 ">=" { return T_ge; }
